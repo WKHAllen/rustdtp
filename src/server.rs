@@ -53,10 +53,10 @@ pub mod server {
 			Server::new(on_recv, on_connect, on_disconnect, false, false)
 		}
 
-		pub fn start(&mut self, host: &str, port: u16) {
+		pub fn start(&mut self, host: &str, port: u16) -> std::io::Result<()> {
 			if !self.serving {
 				let addr = format!("{}:{}", host, port);
-				let listener = TcpListener::bind(addr).unwrap();
+				let listener = TcpListener::bind(addr)?;
 				self.sock = ServerSock::Sock(listener);
 
 				self.serving = true;
@@ -66,18 +66,20 @@ pub mod server {
 					// TODO: spawn serve method in thread
 				}
 			}
+
+			Ok(())
 		}
 
-		pub fn start_default_host(&mut self, port: u16) {
-			&self.start("0.0.0.0", port);
+		pub fn start_default_host(&mut self, port: u16) -> std::io::Result<()> {
+			self.start("0.0.0.0", port)
 		}
 
-		pub fn start_default_port(&mut self, host: &str) {
-			&self.start(host, 0);
+		pub fn start_default_port(&mut self, host: &str) -> std::io::Result<()> {
+			self.start(host, 0)
 		}
 
-		pub fn start_default(&mut self) {
-			&self.start("0.0.0.0", 0);
+		pub fn start_default(&mut self) -> std::io::Result<()> {
+			self.start("0.0.0.0", 0)
 		}
 
 		pub fn stop(&mut self) -> std::io::Result<()> {
