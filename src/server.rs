@@ -1,5 +1,5 @@
 pub mod server {
-	use std::net::{TcpListener, TcpStream, Shutdown};
+	use std::net::{TcpListener, TcpStream, Shutdown, SocketAddr};
 	use std::thread;
 	use std::io;
 	use std::time::Duration;
@@ -15,9 +15,9 @@ pub mod server {
 	}
 
 	pub struct Server {
-		on_recv: fn(u32, &str),
-		on_connect: fn(u32),
-		on_disconnect: fn(u32),
+		on_recv: fn(usize, &str),
+		on_connect: fn(usize),
+		on_disconnect: fn(usize),
 		blocking: bool,
 		event_blocking: bool,
 		serving: bool,
@@ -28,9 +28,9 @@ pub mod server {
 
 	impl Server {
 		pub fn new(
-			on_recv: fn(u32, &str),
-			on_connect: fn(u32),
-			on_disconnect: fn(u32),
+			on_recv: fn(usize, &str),
+			on_connect: fn(usize),
+			on_disconnect: fn(usize),
 			blocking: bool,
 			event_blocking: bool
 				) -> Server {
@@ -47,9 +47,9 @@ pub mod server {
 		}
 
 		pub fn new_default(
-			on_recv: fn(u32, &str),
-			on_connect: fn(u32),
-			on_disconnect: fn(u32),
+			on_recv: fn(usize, &str),
+			on_connect: fn(usize),
+			on_disconnect: fn(usize),
 				) -> Server {
 			Server::new(on_recv, on_connect, on_disconnect, false, false)
 		}
@@ -146,6 +146,13 @@ pub mod server {
 
 		fn serve_client(&self, client_id: usize) {
 			// TODO: implement client serving
+		}
+
+		pub fn get_addr(&self) -> io::Result<SocketAddr> {
+			match &self.sock {
+				ServerSock::Sock(listener) => listener.local_addr(),
+				ServerSock::Null => Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not listening")),
+			}
 		}
 
 		// TODO: complete implementation
