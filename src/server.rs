@@ -66,7 +66,9 @@ pub mod server {
 				if self.blocking {
 					self.serve()?;
 				} else {
-					// TODO: spawn serve method in thread
+					// thread::spawn(move || {
+					// 	self.serve()
+					// });
 				}
 			}
 
@@ -135,7 +137,7 @@ pub mod server {
 						thread::sleep(Duration::from_millis(10));
 					}
 
-					Ok(()) // unreachable; to satisfy the compiler
+					unreachable!()
 				},
 				ServerSock::Null => Ok(()),
 			}
@@ -194,7 +196,7 @@ pub mod server {
 					Some(client) => {
 						match client {
 							ClientSock::Sock(conn) => conn.peer_addr(),
-							ClientSock::Null => Err(io::Error::new(io::ErrorKind::Other, "Null client")) // this should not happen
+							ClientSock::Null => unreachable!(),
 						}
 					},
 					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
@@ -215,7 +217,7 @@ pub mod server {
 								// TODO: remove client's key
 								Ok(())
 							},
-							ClientSock::Null => Err(io::Error::new(io::ErrorKind::Other, "Null client")) // this should not happen
+							ClientSock::Null => unreachable!(),
 						}
 					},
 					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
@@ -223,6 +225,12 @@ pub mod server {
 			} else {
 				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
 			}
+		}
+	}
+
+	impl Drop for Server {
+		fn drop(&mut self) {
+			self.stop().unwrap();
 		}
 	}
 }
