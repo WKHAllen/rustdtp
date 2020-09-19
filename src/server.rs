@@ -203,6 +203,20 @@ pub mod server {
 			}
 		}
 
-		// TODO: complete implementation
+		pub fn remove_client(&self, client_id: usize) -> io::Result<()> {
+			if self.serving {
+				match self.clients.get(&client_id) {
+					Some(client) => {
+						match client {
+							ClientSock::Sock(conn) => conn.shutdown(Shutdown::Both),
+							ClientSock::Null => Err(io::Error::new(io::ErrorKind::Other, "Null client")) // this should not happen
+						}
+					},
+					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
+				}
+			} else {
+				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			}
+		}
 	}
 }
