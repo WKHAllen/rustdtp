@@ -24,6 +24,7 @@ pub mod server {
 		serving: bool,
 		sock: ServerSock,
 		clients: HashMap<usize, ClientSock>,
+		// TODO: add keys attribute
 		// TODO: add other attributes
 	}
 
@@ -203,12 +204,17 @@ pub mod server {
 			}
 		}
 
-		pub fn remove_client(&self, client_id: usize) -> io::Result<()> {
+		pub fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
 			if self.serving {
 				match self.clients.get(&client_id) {
 					Some(client) => {
 						match client {
-							ClientSock::Sock(conn) => conn.shutdown(Shutdown::Both),
+							ClientSock::Sock(conn) => {
+								conn.shutdown(Shutdown::Both)?;
+								self.clients.remove(&client_id);
+								// TODO: remove client's key
+								Ok(())
+							},
 							ClientSock::Null => Err(io::Error::new(io::ErrorKind::Other, "Null client")) // this should not happen
 						}
 					},
