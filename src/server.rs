@@ -1,6 +1,7 @@
 pub mod server {
 	use std::net::{TcpListener, TcpStream, Shutdown, SocketAddr};
 	use std::thread;
+	use std::collections::HashMap;
 	use std::io;
 	use std::time::Duration;
 
@@ -22,7 +23,7 @@ pub mod server {
 		event_blocking: bool,
 		serving: bool,
 		sock: ServerSock,
-		clients: Vec<ClientSock>,
+		clients: HashMap<usize, ClientSock>,
 		// TODO: add other attributes
 	}
 
@@ -42,7 +43,7 @@ pub mod server {
 				event_blocking,
 				serving: false,
 				sock: ServerSock::Null,
-				clients: Vec::new(),
+				clients: HashMap::new(),
 			}
 		}
 
@@ -87,7 +88,7 @@ pub mod server {
 			if self.serving {
 				self.serving = false;
 
-				for client in &self.clients {
+				for (_, client) in &self.clients {
 					match client {
 						ClientSock::Sock(stream) => stream.shutdown(Shutdown::Both),
 						ClientSock::Null => Ok(()),
@@ -107,7 +108,7 @@ pub mod server {
 							Ok(conn) => {
 								let client_id = self.clients.len();
 								self.exchange_keys(client_id, &conn)?;
-								self.clients.push(ClientSock::Sock(conn));
+								self.clients.insert(client_id, ClientSock::Sock(conn));
 								self.serve_client(client_id); // TODO: spawn new thread for this
 								Ok(())
 							},
@@ -148,10 +149,57 @@ pub mod server {
 			// TODO: implement client serving
 		}
 
+		pub fn send(&self, data: &str, client_id: usize) -> io::Result<()> {
+			if self.serving {
+				// TODO: implement sending data
+				Ok(())
+			} else {
+				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			}
+		}
+
+		pub fn send_multiple(&self, data: &str, client_ids: &[usize]) -> io::Result<()> {
+			for client_id in client_ids {
+				self.send(data, *client_id)?;
+			}
+			Ok(())
+		}
+
+		pub fn send_all(&self, data: &str) -> io::Result<()> {
+			for (client_id, _) in &self.clients {
+				self.send(data, *client_id)?;
+			}
+			Ok(())
+		}
+
+		pub fn serving(&self) -> bool {
+			self.serving
+		}
+
 		pub fn get_addr(&self) -> io::Result<SocketAddr> {
-			match &self.sock {
-				ServerSock::Sock(listener) => listener.local_addr(),
-				ServerSock::Null => Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not listening")),
+			if self.serving {
+				match &self.sock {
+					ServerSock::Sock(listener) => listener.local_addr(),
+					ServerSock::Null => Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not listening")),
+				}
+			} else {
+				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			}
+		}
+
+		pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
+			if self.serving {
+				match self.clients.get(&client_id) {
+					Some(client) => {
+						match client {
+							ClientSock::Sock(conn) => conn.peer_addr(),
+							ClientSock::Null => Err(io::Error::new(io::ErrorKind::Other, "Null client")) // this should not happen
+						}
+					},
+					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
+				}
+			} else {
+				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
 			}
 		}
 
