@@ -10,6 +10,7 @@ pub mod server {
 		on_connect: fn(usize),
 		on_disconnect: fn(usize),
 		serving: bool,
+		next_client_id: usize,
 		sock: Option<TcpListener>,
 		clients: HashMap<usize, TcpStream>,
 		// TODO: add keys attribute
@@ -27,6 +28,7 @@ pub mod server {
 				on_connect,
 				on_disconnect,
 				serving: false,
+				next_client_id: 0,
 				sock: None,
 				clients: HashMap::new(),
 			}
@@ -76,9 +78,11 @@ pub mod server {
 					for stream in listener.incoming() {
 						let result = match stream {
 							Ok(conn) => {
-								let client_id = self.clients.len();
+								let client_id = self.next_client_id;
+								self.next_client_id += 1;
 								self.exchange_keys(client_id, &conn)?;
 								self.clients.insert(client_id, conn);
+								(self.on_connect)(client_id);
 								Ok(())
 							},
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
