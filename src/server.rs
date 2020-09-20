@@ -11,7 +11,7 @@ pub mod server {
 		on_disconnect: fn(usize),
 		serving: bool,
 		sock: Option<TcpListener>,
-		clients: HashMap<usize, Option<TcpStream>>,
+		clients: HashMap<usize, TcpStream>,
 		// TODO: add keys attribute
 		// TODO: add other attributes
 	}
@@ -62,10 +62,7 @@ pub mod server {
 				self.serving = false;
 
 				for (_, client) in &self.clients {
-					match client {
-						Some(stream) => stream.shutdown(Shutdown::Both),
-						None => Ok(()),
-					}?;
+					client.shutdown(Shutdown::Both)?;
 				}
 			}
 
@@ -81,7 +78,7 @@ pub mod server {
 							Ok(conn) => {
 								let client_id = self.clients.len();
 								self.exchange_keys(client_id, &conn)?;
-								self.clients.insert(client_id, Some(conn));
+								self.clients.insert(client_id, conn);
 								Ok(())
 							},
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -125,7 +122,9 @@ pub mod server {
 		}
 		
 		fn serve_clients(&self) -> io::Result<()> {
-			// TODO: implement clients serving
+			for (client_id, _) in &self.clients {
+				self.serve_client(*client_id)?;
+			}
 			Ok(())
 		}
 
@@ -171,10 +170,7 @@ pub mod server {
 			if self.serving {
 				match self.clients.get(&client_id) {
 					Some(client) => {
-						match client {
-							Some(conn) => conn.peer_addr(),
-							None => unreachable!(),
-						}
+						client.peer_addr()
 					},
 					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 				}
@@ -187,15 +183,10 @@ pub mod server {
 			if self.serving {
 				match self.clients.get(&client_id) {
 					Some(client) => {
-						match client {
-							Some(conn) => {
-								conn.shutdown(Shutdown::Both)?;
-								self.clients.remove(&client_id);
-								// TODO: remove client's key
-								Ok(())
-							},
-							None => unreachable!(),
-						}
+						client.shutdown(Shutdown::Both)?;
+						self.clients.remove(&client_id);
+						// TODO: remove client's key
+						Ok(())
 					},
 					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
 				}
