@@ -28,7 +28,7 @@ mod tests {
 
 	#[test]
 	fn test_serve() {
-		let mut server = Server::new(server_on_recv, server_on_connect, server_on_disconnect, true, true);
+		let mut server = Server::new(server_on_recv, server_on_connect, server_on_disconnect);
 		server.start_default().unwrap();
 		println!("Address: {}", server.get_addr().unwrap());
 		server.stop().unwrap();
