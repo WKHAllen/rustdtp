@@ -14,8 +14,11 @@ use std::thread;
 mod tests {
 	use super::*;
 
-	fn server_on_recv(client_id: usize, message: &str) {
-		println!("Message from client #{}: {}", client_id, message);
+	fn server_on_recv(client_id: usize, message: &[u8]) {
+		println!("Message from client #{}: {}", client_id, match std::str::from_utf8(message) {
+			Ok(result) => result,
+			Err(e) => panic!("Failed to parse message from client: {}", e),
+		});
 	}
 
 	fn server_on_connect(client_id: usize) {

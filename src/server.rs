@@ -1,12 +1,17 @@
+#[path = "util.rs"]
+mod util;
+
 pub mod server {
 	use std::net::{TcpListener, TcpStream, Shutdown, SocketAddr};
 	use std::thread;
 	use std::collections::HashMap;
 	use std::io;
+	use std::io::Read;
 	use std::time::Duration;
+	use super::util::*;
 
 	pub struct Server {
-		on_recv: fn(usize, &str),
+		on_recv: fn(usize, &[u8]),
 		on_connect: fn(usize),
 		on_disconnect: fn(usize),
 		serving: bool,
@@ -19,7 +24,7 @@ pub mod server {
 
 	impl Server {
 		pub fn new(
-			on_recv: fn(usize, &str),
+			on_recv: fn(usize, &[u8]),
 			on_connect: fn(usize),
 			on_disconnect: fn(usize),
 				) -> Server {
@@ -80,6 +85,8 @@ pub mod server {
 							Ok(conn) => {
 								let client_id = self.next_client_id;
 								self.next_client_id += 1;
+								conn.set_nonblocking(true)?;
+
 								self.exchange_keys(client_id, &conn)?;
 								self.clients.insert(client_id, conn);
 								(self.on_connect)(client_id);
@@ -111,18 +118,72 @@ pub mod server {
 
 					unreachable!();
 				},
-				None => Ok(()),
+				None => unreachable!(),
 			}
 		}
 
-		fn exchange_keys(&self, client_id: usize, conn: &TcpStream) -> io::Result<()> {
+		fn exchange_keys(&self, client_id: usize, client: &TcpStream) -> io::Result<()> {
 			// TODO: implement key exchange
 			Ok(())
 		}
 
 		fn serve_client(&self, client_id: usize) -> io::Result<()> {
-			// TODO: implement client serving
-			Ok(())
+			match self.clients.get(&client_id) {
+				Some(mut client) => {
+					let mut size_buffer = [0; LEN_SIZE];
+					let result = match client.read(&mut size_buffer) {
+						Ok(size_len) => {
+							assert_eq!(size_len, LEN_SIZE);
+							
+							let msg_size = ascii_to_dec(size_buffer);
+							let mut buffer = Vec::with_capacity(msg_size);
+							
+							match client.read(&mut buffer) {
+								Ok(len) => {
+									assert_eq!(len, msg_size);
+
+									// TODO: decrypt data
+									let msg = buffer.as_slice();
+									(self.on_recv)(client_id, msg);
+									Ok(())
+								},
+								Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+									if self.serving {
+										Ok(())
+									} else {
+										Err(io::Error::new(io::ErrorKind::Other, "Done"))
+									}
+								},
+								Err(e) => {
+									Err(e) // TODO: check for client disconnected
+								},
+							}
+						},
+						Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+							if self.serving {
+								Ok(())
+							} else {
+								Err(io::Error::new(io::ErrorKind::Other, "Done"))
+							}
+						},
+						Err(e) => {
+							Err(e) // TODO: check for client disconnected
+						},
+					};
+
+					if result.is_err() {
+						let result_err = result.err().unwrap();
+						if result_err.kind() == io::ErrorKind::Other {
+							return Ok(());
+						} else {
+							return Err(result_err);
+						}
+					}
+
+					Ok(())
+				},
+				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
+			}
 		}
 		
 		fn serve_clients(&self) -> io::Result<()> {
@@ -132,7 +193,7 @@ pub mod server {
 			Ok(())
 		}
 
-		pub fn send(&self, data: &str, client_id: usize) -> io::Result<()> {
+		pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
 			if self.serving {
 				// TODO: implement sending data
 				Ok(())
@@ -141,14 +202,14 @@ pub mod server {
 			}
 		}
 
-		pub fn send_multiple(&self, data: &str, client_ids: &[usize]) -> io::Result<()> {
+		pub fn send_multiple(&self, data: &[u8], client_ids: &[usize]) -> io::Result<()> {
 			for client_id in client_ids {
 				self.send(data, *client_id)?;
 			}
 			Ok(())
 		}
 
-		pub fn send_all(&self, data: &str) -> io::Result<()> {
+		pub fn send_all(&self, data: &[u8]) -> io::Result<()> {
 			for (client_id, _) in &self.clients {
 				self.send(data, *client_id)?;
 			}
@@ -173,9 +234,7 @@ pub mod server {
 		pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
 			if self.serving {
 				match self.clients.get(&client_id) {
-					Some(client) => {
-						client.peer_addr()
-					},
+					Some(client) => client.peer_addr(),
 					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 				}
 			} else {
