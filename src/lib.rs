@@ -46,6 +46,7 @@ mod tests {
 		assert_eq!(dec_to_ascii(          255), [  0,   0,   0,   0, 255]);
 		assert_eq!(dec_to_ascii(          256), [  0,   0,   0,   1,   0]);
 		assert_eq!(dec_to_ascii(          257), [  0,   0,   0,   1,   1]);
+		assert_eq!(dec_to_ascii(   4311810305), [  1,   1,   1,   1,   1]);
 		assert_eq!(dec_to_ascii(   4328719365), [  1,   2,   3,   4,   5]);
 		assert_eq!(dec_to_ascii(  47362409218), [ 11,   7,   5,   3,   2]);
 		assert_eq!(dec_to_ascii(1099511627775), [255, 255, 255, 255, 255]);
@@ -53,6 +54,14 @@ mod tests {
 
 	#[test]
 	fn test_ascii_to_dec() {
-
+		assert_eq!(ascii_to_dec([  0,   0,   0,   0,   0]),             0);
+		assert_eq!(ascii_to_dec([  0,   0,   0,   0,   1]),             1);
+		assert_eq!(ascii_to_dec([  0,   0,   0,   0, 255]),           255);
+		assert_eq!(ascii_to_dec([  0,   0,   0,   1,   0]),           256);
+		assert_eq!(ascii_to_dec([  0,   0,   0,   1,   1]),           257);
+		assert_eq!(ascii_to_dec([  1,   1,   1,   1,   1]),    4311810305);
+		assert_eq!(ascii_to_dec([  1,   2,   3,   4,   5]),    4328719365);
+		assert_eq!(ascii_to_dec([ 11,   7,   5,   3,   2]),   47362409218);
+		assert_eq!(ascii_to_dec([255, 255, 255, 255, 255]), 1099511627775);
 	}
 }
