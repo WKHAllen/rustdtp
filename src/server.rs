@@ -6,7 +6,7 @@ pub mod server {
 	use std::thread;
 	use std::collections::HashMap;
 	use std::io;
-	use std::io::Read;
+	use std::io::{Read, Write};
 	use std::time::Duration;
 	use super::util::*;
 
@@ -195,8 +195,19 @@ pub mod server {
 
 		pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
 			if self.serving {
-				// TODO: implement sending data
-				Ok(())
+				match self.clients.get(&client_id) {
+					Some(mut client) => {
+						// TODO: encrypt data
+						let size = dec_to_ascii(data);
+						let mut buffer = vec![];
+						buffer.extend_from_slice(&size);
+						buffer.extend_from_slice(data);
+
+						client.write(&buffer[..])?;
+						Ok(())
+					},
+					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
+				}
 			} else {
 				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
 			}
