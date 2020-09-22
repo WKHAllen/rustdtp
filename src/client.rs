@@ -1,6 +1,6 @@
 pub mod client {
 	pub struct Client {
-		on_recv: fn(&str),
+		on_recv: fn(&[u8]),
 		on_disconnected: fn(),
 		blocking: bool,
 		event_blocking: bool,
