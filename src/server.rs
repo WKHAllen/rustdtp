@@ -198,7 +198,7 @@ pub mod server {
 				match self.clients.get(&client_id) {
 					Some(mut client) => {
 						// TODO: encrypt data
-						let size = dec_to_ascii(data);
+						let size = dec_to_ascii(data.len());
 						let mut buffer = vec![];
 						buffer.extend_from_slice(&size);
 						buffer.extend_from_slice(data);

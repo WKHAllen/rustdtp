@@ -3,9 +3,11 @@
 
 mod client;
 mod server;
+mod util;
 
 pub use client::client::*;
 pub use server::server::*;
+use util::*;
 
 use std::time::Duration;
 use std::thread;
@@ -35,5 +37,22 @@ mod tests {
 		server.start_default().unwrap();
 		println!("Address: {}", server.get_addr().unwrap());
 		server.stop().unwrap();
+	}
+
+	#[test]
+	fn test_dec_to_ascii() {
+		assert_eq!(dec_to_ascii(            0), [  0,   0,   0,   0,   0]);
+		assert_eq!(dec_to_ascii(            1), [  0,   0,   0,   0,   1]);
+		assert_eq!(dec_to_ascii(          255), [  0,   0,   0,   0, 255]);
+		assert_eq!(dec_to_ascii(          256), [  0,   0,   0,   1,   0]);
+		assert_eq!(dec_to_ascii(          257), [  0,   0,   0,   1,   1]);
+		assert_eq!(dec_to_ascii(   4328719365), [  1,   2,   3,   4,   5]);
+		assert_eq!(dec_to_ascii(  47362409218), [ 11,   7,   5,   3,   2]);
+		assert_eq!(dec_to_ascii(1099511627775), [255, 255, 255, 255, 255]);
+	}
+
+	#[test]
+	fn test_ascii_to_dec() {
+
 	}
 }
