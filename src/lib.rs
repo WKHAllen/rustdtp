@@ -32,14 +32,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_serve() {
-		let mut server = Server::new(server_on_recv, server_on_connect, server_on_disconnect);
-		server.start_default().unwrap();
-		println!("Address: {}", server.get_addr().unwrap());
-		server.stop().unwrap();
-	}
-
-	#[test]
 	fn test_dec_to_ascii() {
 		assert_eq!(dec_to_ascii(            0), [  0,   0,   0,   0,   0]);
 		assert_eq!(dec_to_ascii(            1), [  0,   0,   0,   0,   1]);
@@ -63,5 +55,13 @@ mod tests {
 		assert_eq!(ascii_to_dec([  1,   2,   3,   4,   5]),    4328719365);
 		assert_eq!(ascii_to_dec([ 11,   7,   5,   3,   2]),   47362409218);
 		assert_eq!(ascii_to_dec([255, 255, 255, 255, 255]), 1099511627775);
+	}
+
+	#[test]
+	fn test_serve() {
+		let mut server = Server::new(server_on_recv, server_on_connect, server_on_disconnect);
+		server.start_default().unwrap();
+		println!("Address: {}", server.get_addr().unwrap());
+		server.stop().unwrap();
 	}
 }
