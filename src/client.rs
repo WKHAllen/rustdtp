@@ -2,7 +2,7 @@
 mod util;
 
 pub mod client {
-	use std::net::{TcpStream};
+	use std::net::{TcpStream, Shutdown};
 	use std::io;
 	use super::util::*;
 
@@ -46,6 +46,18 @@ pub mod client {
 
 		pub fn connect_default_host(&mut self, port: u16) -> io::Result<()> {
 			self.connect("0.0.0.0", port)
+		}
+
+		pub fn disconnect(&mut self) -> io::Result<()> {
+			if !self.connected {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+			}
+
+			self.connected = false;
+			match &self.sock {
+				Some(conn) => conn.shutdown(Shutdown::Both),
+				None => unreachable!(),
+			}
 		}
 	}
 }
