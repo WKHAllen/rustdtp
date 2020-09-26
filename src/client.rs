@@ -41,7 +41,7 @@ pub mod client {
 			self.sock = Some(stream);
 			self.connected = true;
 
-			// TODO: exchange keys
+			self.exchange_keys()?;
 			self.handle()?;
 
 			Ok(())
@@ -117,6 +117,27 @@ pub mod client {
 
 				thread::sleep(Duration::from_millis(10));
 			}
+		}
+
+		fn exchange_keys(&mut self) -> io::Result<()> {
+			// TODO: implement key exchange
+			Ok(())
+		}
+
+		pub fn send(&self, data: &[u8]) -> io::Result<()> {
+			if !self.connected {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+			}
+
+			// TODO: encrypt data
+			let size = dec_to_ascii(data.len());
+			let mut buffer = vec![];
+			buffer.extend_from_slice(&size);
+			buffer.extend_from_slice(data);
+
+			let mut conn = self.sock.as_ref().unwrap();
+			conn.write(&buffer[..])?;
+			Ok(())
 		}
 	}
 }
