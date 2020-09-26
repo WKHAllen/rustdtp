@@ -7,14 +7,13 @@ mod util;
 
 pub use client::client::*;
 pub use server::server::*;
-use util::*;
-
-use std::time::Duration;
-use std::thread;
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use util::*;
+	use std::time::Duration;
+	use std::thread;
 
 	fn server_on_recv(client_id: usize, message: &[u8]) {
 		println!("Message from client #{}: {}", client_id, match std::str::from_utf8(message) {
