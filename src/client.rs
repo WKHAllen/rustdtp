@@ -57,10 +57,7 @@ pub mod client {
 			}
 
 			self.connected = false;
-			match &self.sock {
-				Some(conn) => conn.shutdown(Shutdown::Both),
-				None => unreachable!(),
-			}
+			self.sock.as_ref().unwrap().shutdown(Shutdown::Both)
 		}
 
 		fn handle(&self) -> io::Result<()> {

@@ -81,49 +81,46 @@ pub mod server {
 		}
 
 		fn serve(&mut self) -> io::Result<()> {
-			match &self.sock {
-				Some(listener) => {
-					listener.set_nonblocking(true)?;
-					for stream in listener.incoming() {
-						let result = match stream {
-							Ok(conn) => {
-								let client_id = self.next_client_id;
-								self.next_client_id += 1;
-								conn.set_nonblocking(true)?;
+			let listener = self.sock.as_ref().unwrap();
+			listener.set_nonblocking(true)?;
 
-								self.exchange_keys(client_id, &conn)?;
-								self.clients.insert(client_id, conn);
-								(self.on_connect)(client_id);
-								Ok(())
-							},
-							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-								if self.serving {
-									Ok(())
-								} else {
-									Err(io::Error::new(io::ErrorKind::Other, "Done"))
-								}
-							},
-							Err(e) => Err(e),
-						};
+			for stream in listener.incoming() {
+				let result = match stream {
+					Ok(conn) => {
+						let client_id = self.next_client_id;
+						self.next_client_id += 1;
+						conn.set_nonblocking(true)?;
 
-						if result.is_err() {
-							let result_err = result.err().unwrap();
-							if result_err.kind() == io::ErrorKind::Other {
-								return Ok(());
-							} else {
-								return Err(result_err);
-							}
+						self.exchange_keys(client_id, &conn)?;
+						self.clients.insert(client_id, conn);
+						(self.on_connect)(client_id);
+						Ok(())
+					},
+					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+						if self.serving {
+							Ok(())
+						} else {
+							Err(io::Error::new(io::ErrorKind::Other, "Done"))
 						}
+					},
+					Err(e) => Err(e),
+				};
 
-						self.serve_clients()?;
-
-						thread::sleep(Duration::from_millis(10));
+				if result.is_err() {
+					let result_err = result.err().unwrap();
+					if result_err.kind() == io::ErrorKind::Other {
+						return Ok(());
+					} else {
+						return Err(result_err);
 					}
+				}
 
-					unreachable!();
-				},
-				None => unreachable!(),
+				self.serve_clients()?;
+
+				thread::sleep(Duration::from_millis(10));
 			}
+
+			unreachable!();
 		}
 
 		fn exchange_keys(&self, client_id: usize, client: &TcpStream) -> io::Result<()> {
