@@ -43,5 +43,9 @@ pub mod client {
 
 			Ok(())
 		}
+
+		pub fn connect_default_host(&mut self, port: u16) -> io::Result<()> {
+			self.connect("0.0.0.0", port)
+		}
 	}
 }
