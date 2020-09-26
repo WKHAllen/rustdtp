@@ -26,7 +26,7 @@ pub mod server {
 		pub fn new(
 			on_recv: fn(usize, &[u8]),
 			on_connect: fn(usize),
-			on_disconnect: fn(usize),
+			on_disconnect: fn(usize)
 				) -> Server {
 			Server {
 				on_recv,
@@ -43,8 +43,8 @@ pub mod server {
 			if !self.serving {
 				let addr = format!("{}:{}", host, port);
 				let listener = TcpListener::bind(addr)?;
-				self.sock = Some(listener);
 
+				self.sock = Some(listener);
 				self.serving = true;
 				self.serve()?;
 			}
