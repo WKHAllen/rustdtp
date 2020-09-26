@@ -28,13 +28,18 @@ pub mod client {
 		}
 
 		pub fn connect(&mut self, host: &str, port: u16) -> io::Result<()> {
-			if !self.connected {
-				let addr = format!("{}:{}", host, port);
-				let stream = TcpStream::connect(addr)?;
-
-				self.sock = Some(stream);
-				self.connected = true;
+			if self.connected {
+				return Err(io::Error::new(io::ErrorKind::Other, "Already connected"));
 			}
+
+			let addr = format!("{}:{}", host, port);
+			let stream = TcpStream::connect(addr)?;
+
+			self.sock = Some(stream);
+			self.connected = true;
+
+			// TODO: exchange keys
+			// TODO: handle received data
 
 			Ok(())
 		}

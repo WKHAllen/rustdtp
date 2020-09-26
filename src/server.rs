@@ -40,14 +40,16 @@ pub mod server {
 		}
 
 		pub fn start(&mut self, host: &str, port: u16) -> io::Result<()> {
-			if !self.serving {
-				let addr = format!("{}:{}", host, port);
-				let listener = TcpListener::bind(addr)?;
-
-				self.sock = Some(listener);
-				self.serving = true;
-				self.serve()?;
+			if self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Already serving"));
 			}
+
+			let addr = format!("{}:{}", host, port);
+			let listener = TcpListener::bind(addr)?;
+
+			self.sock = Some(listener);
+			self.serving = true;
+			self.serve()?;
 
 			Ok(())
 		}
@@ -65,12 +67,14 @@ pub mod server {
 		}
 
 		pub fn stop(&mut self) -> io::Result<()> {
-			if self.serving {
-				self.serving = false;
+			if !self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not serving"));
+			}
 
-				for (_, client) in &self.clients {
-					client.shutdown(Shutdown::Both)?;
-				}
+			self.serving = false;
+
+			for (_, client) in &self.clients {
+				client.shutdown(Shutdown::Both)?;
 			}
 
 			Ok(())
@@ -194,22 +198,22 @@ pub mod server {
 		}
 
 		pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
-			if self.serving {
-				match self.clients.get(&client_id) {
-					Some(mut client) => {
-						// TODO: encrypt data
-						let size = dec_to_ascii(data.len());
-						let mut buffer = vec![];
-						buffer.extend_from_slice(&size);
-						buffer.extend_from_slice(data);
+			if !self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not serving"));
+			}
 
-						client.write(&buffer[..])?;
-						Ok(())
-					},
-					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
-				}
-			} else {
-				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			match self.clients.get(&client_id) {
+				Some(mut client) => {
+					// TODO: encrypt data
+					let size = dec_to_ascii(data.len());
+					let mut buffer = vec![];
+					buffer.extend_from_slice(&size);
+					buffer.extend_from_slice(data);
+
+					client.write(&buffer[..])?;
+					Ok(())
+				},
+				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 			}
 		}
 
@@ -232,40 +236,40 @@ pub mod server {
 		}
 
 		pub fn get_addr(&self) -> io::Result<SocketAddr> {
-			if self.serving {
-				match &self.sock {
-					Some(listener) => listener.local_addr(),
-					None => Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not listening")),
-				}
-			} else {
-				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			if !self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not serving"));
+			}
+
+			match &self.sock {
+				Some(listener) => listener.local_addr(),
+				None => Err(io::Error::new(io::ErrorKind::Other, "Not listening")),
 			}
 		}
 
 		pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
-			if self.serving {
-				match self.clients.get(&client_id) {
-					Some(client) => client.peer_addr(),
-					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
-				}
-			} else {
-				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			if !self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not serving"));
+			}
+
+			match self.clients.get(&client_id) {
+				Some(client) => client.peer_addr(),
+				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 			}
 		}
 
 		pub fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
-			if self.serving {
-				match self.clients.get(&client_id) {
-					Some(client) => {
-						client.shutdown(Shutdown::Both)?;
-						self.clients.remove(&client_id);
-						// TODO: remove client's key
-						Ok(())
-					},
-					None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
-				}
-			} else {
-				Err(io::Error::new(io::ErrorKind::NotConnected, "The server is not serving"))
+			if !self.serving {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not serving"));
+			}
+
+			match self.clients.get(&client_id) {
+				Some(client) => {
+					client.shutdown(Shutdown::Both)?;
+					self.clients.remove(&client_id);
+					// TODO: remove client's key
+					Ok(())
+				},
+				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
 			}
 		}
 	}
