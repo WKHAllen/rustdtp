@@ -4,6 +4,9 @@ mod util;
 pub mod client {
 	use std::net::{TcpStream, Shutdown};
 	use std::io;
+	use std::io::{Read, Write};
+	use std::thread;
+	use std::time::Duration;
 	use super::util::*;
 
 	pub struct Client {
@@ -39,7 +42,7 @@ pub mod client {
 			self.connected = true;
 
 			// TODO: exchange keys
-			// TODO: handle received data
+			self.handle()?;
 
 			Ok(())
 		}
@@ -57,6 +60,65 @@ pub mod client {
 			match &self.sock {
 				Some(conn) => conn.shutdown(Shutdown::Both),
 				None => unreachable!(),
+			}
+		}
+
+		fn handle(&self) -> io::Result<()> {
+			let mut conn = self.sock.as_ref().unwrap();
+			conn.set_nonblocking(true)?;
+
+			loop {
+				let mut size_buffer = [0; LEN_SIZE];
+				let result = match conn.read(&mut size_buffer) {
+					Ok(size_len) => {
+						assert_eq!(size_len, LEN_SIZE);
+
+						let msg_size = ascii_to_dec(size_buffer);
+						let mut buffer = Vec::with_capacity(msg_size);
+
+						match conn.read(&mut buffer) {
+							Ok(len) => {
+								assert_eq!(len, msg_size);
+
+								// TODO: decrypt data
+								let msg = buffer.as_slice();
+								(self.on_recv)(msg);
+								Ok(())
+							},
+							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+								if self.connected {
+									Ok(())
+								} else {
+									Err(io::Error::new(io::ErrorKind::Other, "Done"))
+								}
+							},
+							Err(e) => {
+								Err(e) // TODO: check for disconnected
+							},
+						}
+					},
+					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+						if self.connected {
+							Ok(())
+						} else {
+							Err(io::Error::new(io::ErrorKind::Other, "Done"))
+						}
+					},
+					Err(e) => {
+						Err(e) // TODO: check for disconnected
+					},
+				};
+
+				if result.is_err() {
+					let result_err = result.err().unwrap();
+					if result_err.kind() == io::ErrorKind::Other {
+						return Ok(());
+					} else {
+						return Err(result_err);
+					}
+				}
+
+				thread::sleep(Duration::from_millis(10));
 			}
 		}
 	}

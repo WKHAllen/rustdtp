@@ -138,10 +138,10 @@ pub mod server {
 					let result = match client.read(&mut size_buffer) {
 						Ok(size_len) => {
 							assert_eq!(size_len, LEN_SIZE);
-							
+
 							let msg_size = ascii_to_dec(size_buffer);
 							let mut buffer = Vec::with_capacity(msg_size);
-							
+
 							match client.read(&mut buffer) {
 								Ok(len) => {
 									assert_eq!(len, msg_size);
