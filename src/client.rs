@@ -2,7 +2,7 @@
 mod util;
 
 pub mod client {
-	use std::net::{TcpStream, Shutdown};
+	use std::net::{TcpStream, Shutdown, SocketAddr};
 	use std::io;
 	use std::io::{Read, Write};
 	use std::thread;
@@ -138,6 +138,28 @@ pub mod client {
 			let mut conn = self.sock.as_ref().unwrap();
 			conn.write(&buffer[..])?;
 			Ok(())
+		}
+
+		pub fn connected(&self) -> bool {
+			self.connected
+		}
+
+		pub fn get_addr(&self) -> io::Result<SocketAddr> {
+			if !self.connected {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+			}
+
+			let conn = self.sock.as_ref().unwrap();
+			conn.local_addr()
+		}
+
+		pub fn get_server_addr(&self) -> io::Result<SocketAddr> {
+			if !self.connected {
+				return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+			}
+
+			let conn = self.sock.as_ref().unwrap();
+			conn.peer_addr()
 		}
 	}
 }
