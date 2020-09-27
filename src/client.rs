@@ -9,25 +9,31 @@ pub mod client {
 	use std::time::Duration;
 	use super::util::*;
 
-	type OnRecvFunc         = fn(&[u8]);
-	type OnDisconnectedFunc = fn();
+	type OnRecvFunc<T>         = fn(&[u8], &T);
+	type OnDisconnectedFunc<U> = fn(&U);
 
-	pub struct Client {
-		on_recv: OnRecvFunc,
-		on_disconnected: OnDisconnectedFunc,
+	pub struct Client<'a, T, U: 'a> {
+		on_recv: OnRecvFunc<T>,
+		on_disconnected: OnDisconnectedFunc<U>,
+		on_recv_arg: &'a T,
+		on_disconnected_arg: &'a U,
 		connected: bool,
 		sock: Option<TcpStream>,
 		// TODO: add other attributes
 	}
 
-	impl Client {
+	impl<'a, T, U> Client<'a, T, U> {
 		pub fn new(
-			on_recv: OnRecvFunc,
-			on_disconnected: OnDisconnectedFunc
-				) -> Client {
+			on_recv: OnRecvFunc<T>,
+			on_disconnected: OnDisconnectedFunc<U>,
+			on_recv_arg: &'a T,
+			on_disconnected_arg: &'a U
+				) -> Client<'a, T, U> {
 			Client {
 				on_recv,
 				on_disconnected,
+				on_recv_arg,
+				on_disconnected_arg,
 				connected: false,
 				sock: None,
 			}
@@ -82,7 +88,7 @@ pub mod client {
 
 								// TODO: decrypt data
 								let msg = buffer.as_slice();
-								(self.on_recv)(msg);
+								(self.on_recv)(msg, self.on_recv_arg);
 								Ok(())
 							},
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {

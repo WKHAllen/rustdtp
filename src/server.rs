@@ -10,14 +10,17 @@ pub mod server {
 	use std::time::Duration;
 	use super::util::*;
 
-	type OnRecvFunc       = fn(usize, &[u8]);
-	type OnConnectFunc    = fn(usize);
-	type OnDisconnectFunc = fn(usize);
+	type OnRecvFunc<T>       = fn(usize, &[u8], &T);
+	type OnConnectFunc<U>    = fn(usize, &U);
+	type OnDisconnectFunc<V> = fn(usize, &V);
 
-	pub struct Server {
-		on_recv: OnRecvFunc,
-		on_connect: OnConnectFunc,
-		on_disconnect: OnDisconnectFunc,
+	pub struct Server<'a, T, U, V: 'a> {
+		on_recv: OnRecvFunc<T>,
+		on_connect: OnConnectFunc<U>,
+		on_disconnect: OnDisconnectFunc<V>,
+		on_recv_arg: &'a T,
+		on_connect_arg: &'a U,
+		on_disconnect_arg: &'a V,
 		serving: bool,
 		next_client_id: usize,
 		sock: Option<TcpListener>,
@@ -26,16 +29,22 @@ pub mod server {
 		// TODO: add other attributes
 	}
 
-	impl Server {
+	impl<'a, T, U, V> Server<'a, T, U, V> {
 		pub fn new(
-			on_recv: OnRecvFunc,
-			on_connect: OnConnectFunc,
-			on_disconnect: OnDisconnectFunc
-				) -> Server {
+			on_recv: OnRecvFunc<T>,
+			on_connect: OnConnectFunc<U>,
+			on_disconnect: OnDisconnectFunc<V>,
+			on_recv_arg: &'a T,
+			on_connect_arg: &'a U,
+			on_disconnect_arg: &'a V
+				) -> Server<'a, T, U, V> {
 			Server {
 				on_recv,
 				on_connect,
 				on_disconnect,
+				on_recv_arg,
+				on_connect_arg,
+				on_disconnect_arg,
 				serving: false,
 				next_client_id: 0,
 				sock: None,
@@ -97,7 +106,7 @@ pub mod server {
 
 						self.exchange_keys(client_id, &conn)?;
 						self.clients.insert(client_id, conn);
-						(self.on_connect)(client_id);
+						(self.on_connect)(client_id, self.on_connect_arg);
 						Ok(())
 					},
 					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -149,7 +158,7 @@ pub mod server {
 
 									// TODO: decrypt data
 									let msg = buffer.as_slice();
-									(self.on_recv)(client_id, msg);
+									(self.on_recv)(client_id, msg, self.on_recv_arg);
 									Ok(())
 								},
 								Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -275,7 +284,7 @@ pub mod server {
 		}
 	}
 
-	impl Drop for Server {
+	impl<'a, T, U, V> Drop for Server<'a, T, U, V> {
 		fn drop(&mut self) {
 			self.stop().unwrap();
 		}
