@@ -9,9 +9,12 @@ pub mod client {
 	use std::time::Duration;
 	use super::util::*;
 
+	type OnRecvFunc         = fn(&[u8]);
+	type OnDisconnectedFunc = fn();
+
 	pub struct Client {
-		on_recv: fn(&[u8]),
-		on_disconnected: fn(),
+		on_recv: OnRecvFunc,
+		on_disconnected: OnDisconnectedFunc,
 		connected: bool,
 		sock: Option<TcpStream>,
 		// TODO: add other attributes
@@ -19,8 +22,8 @@ pub mod client {
 
 	impl Client {
 		pub fn new(
-			on_recv: fn(&[u8]),
-			on_disconnected: fn()
+			on_recv: OnRecvFunc,
+			on_disconnected: OnDisconnectedFunc
 				) -> Client {
 			Client {
 				on_recv,

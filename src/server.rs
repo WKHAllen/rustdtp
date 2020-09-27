@@ -10,10 +10,14 @@ pub mod server {
 	use std::time::Duration;
 	use super::util::*;
 
+	type OnRecvFunc       = fn(usize, &[u8]);
+	type OnConnectFunc    = fn(usize);
+	type OnDisconnectFunc = fn(usize);
+
 	pub struct Server {
-		on_recv: fn(usize, &[u8]),
-		on_connect: fn(usize),
-		on_disconnect: fn(usize),
+		on_recv: OnRecvFunc,
+		on_connect: OnConnectFunc,
+		on_disconnect: OnDisconnectFunc,
 		serving: bool,
 		next_client_id: usize,
 		sock: Option<TcpListener>,
@@ -24,9 +28,9 @@ pub mod server {
 
 	impl Server {
 		pub fn new(
-			on_recv: fn(usize, &[u8]),
-			on_connect: fn(usize),
-			on_disconnect: fn(usize)
+			on_recv: OnRecvFunc,
+			on_connect: OnConnectFunc,
+			on_disconnect: OnDisconnectFunc
 				) -> Server {
 			Server {
 				on_recv,
