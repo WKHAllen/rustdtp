@@ -2,16 +2,16 @@
 mod util;
 
 pub mod server {
-	use std::net::{TcpListener, TcpStream, Shutdown, SocketAddr};
-	use std::thread;
+	use super::util::*;
 	use std::collections::HashMap;
 	use std::io;
 	use std::io::{Read, Write};
+	use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+	use std::thread;
 	use std::time::Duration;
-	use super::util::*;
 
-	type OnRecvFunc<T>       = fn(usize, &[u8], &T);
-	type OnConnectFunc<U>    = fn(usize, &U);
+	type OnRecvFunc<T> = fn(usize, &[u8], &T);
+	type OnConnectFunc<U> = fn(usize, &U);
 	type OnDisconnectFunc<V> = fn(usize, &V);
 
 	pub struct Server<'a, T, U, V: 'a> {
@@ -36,8 +36,8 @@ pub mod server {
 			on_disconnect: OnDisconnectFunc<V>,
 			on_recv_arg: &'a T,
 			on_connect_arg: &'a U,
-			on_disconnect_arg: &'a V
-				) -> Server<'a, T, U, V> {
+			on_disconnect_arg: &'a V,
+		) -> Server<'a, T, U, V> {
 			Server {
 				on_recv,
 				on_connect,
@@ -108,14 +108,14 @@ pub mod server {
 						self.clients.insert(client_id, conn);
 						(self.on_connect)(client_id, self.on_connect_arg);
 						Ok(())
-					},
+					}
 					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
 						if self.serving {
 							Ok(())
 						} else {
 							Err(io::Error::new(io::ErrorKind::Other, "Done"))
 						}
-					},
+					}
 					Err(e) => Err(e),
 				};
 
@@ -160,29 +160,29 @@ pub mod server {
 									let msg = buffer.as_slice();
 									(self.on_recv)(client_id, msg, self.on_recv_arg);
 									Ok(())
-								},
+								}
 								Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
 									if self.serving {
 										Ok(())
 									} else {
 										Err(io::Error::new(io::ErrorKind::Other, "Done"))
 									}
-								},
+								}
 								Err(e) => {
 									Err(e) // TODO: check for client disconnected
-								},
+								}
 							}
-						},
+						}
 						Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
 							if self.serving {
 								Ok(())
 							} else {
 								Err(io::Error::new(io::ErrorKind::Other, "Done"))
 							}
-						},
+						}
 						Err(e) => {
 							Err(e) // TODO: check for client disconnected
-						},
+						}
 					};
 
 					if result.is_err() {
@@ -195,11 +195,11 @@ pub mod server {
 					}
 
 					Ok(())
-				},
+				}
 				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 			}
 		}
-		
+
 		fn serve_clients(&self) -> io::Result<()> {
 			for (client_id, _) in &self.clients {
 				self.serve_client(*client_id)?;
@@ -222,7 +222,7 @@ pub mod server {
 
 					client.write(&buffer[..])?;
 					Ok(())
-				},
+				}
 				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 			}
 		}
@@ -278,8 +278,8 @@ pub mod server {
 					self.clients.remove(&client_id);
 					// TODO: remove client's key
 					Ok(())
-				},
-				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID"))
+				}
+				None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 			}
 		}
 	}

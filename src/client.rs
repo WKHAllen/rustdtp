@@ -2,14 +2,14 @@
 mod util;
 
 pub mod client {
-	use std::net::{TcpStream, Shutdown, SocketAddr};
+	use super::util::*;
 	use std::io;
 	use std::io::{Read, Write};
+	use std::net::{Shutdown, SocketAddr, TcpStream};
 	use std::thread;
 	use std::time::Duration;
-	use super::util::*;
 
-	type OnRecvFunc<T>         = fn(&[u8], &T);
+	type OnRecvFunc<T> = fn(&[u8], &T);
 	type OnDisconnectedFunc<U> = fn(&U);
 
 	pub struct Client<'a, T, U: 'a> {
@@ -27,8 +27,8 @@ pub mod client {
 			on_recv: OnRecvFunc<T>,
 			on_disconnected: OnDisconnectedFunc<U>,
 			on_recv_arg: &'a T,
-			on_disconnected_arg: &'a U
-				) -> Client<'a, T, U> {
+			on_disconnected_arg: &'a U,
+		) -> Client<'a, T, U> {
 			Client {
 				on_recv,
 				on_disconnected,
@@ -90,29 +90,29 @@ pub mod client {
 								let msg = buffer.as_slice();
 								(self.on_recv)(msg, self.on_recv_arg);
 								Ok(())
-							},
+							}
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
 								if self.connected {
 									Ok(())
 								} else {
 									Err(io::Error::new(io::ErrorKind::Other, "Done"))
 								}
-							},
+							}
 							Err(e) => {
 								Err(e) // TODO: check for disconnected
-							},
+							}
 						}
-					},
+					}
 					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
 						if self.connected {
 							Ok(())
 						} else {
 							Err(io::Error::new(io::ErrorKind::Other, "Done"))
 						}
-					},
+					}
 					Err(e) => {
 						Err(e) // TODO: check for disconnected
-					},
+					}
 				};
 
 				if result.is_err() {
