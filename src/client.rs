@@ -8,11 +8,12 @@ pub mod client {
 
 	pub struct Client<R, D>
 	where
-		R: Fn(&[u8]),
-		D: Fn(),
+		R: Fn(&[u8]) + Clone,
+		D: Fn() + Clone,
 	{
-		on_recv: R,
-		on_disconnected: D,
+		on_receive: Option<R>,
+		on_disconnected: Option<D>,
+		blocking: bool,
 		connected: bool,
 		sock: Option<TcpStream>,
 		// TODO: add other attributes
@@ -20,16 +21,11 @@ pub mod client {
 
 	impl<R, D> Client<R, D>
 	where
-		R: Fn(&[u8]),
-		D: Fn(),
+		R: Fn(&[u8]) + Clone,
+		D: Fn() + Clone,
 	{
-		pub fn new(on_recv: R, on_disconnected: D) -> Self {
-			Self {
-				on_recv,
-				on_disconnected,
-				connected: false,
-				sock: None,
-			}
+		pub fn new() -> ClientBuilder<R, D> {
+			ClientBuilder::new()
 		}
 
 		pub fn connect(&mut self, host: &str, port: u16) -> io::Result<()> {
@@ -81,7 +77,12 @@ pub mod client {
 
 								// TODO: decrypt data
 								let msg = buffer.as_slice();
-								(self.on_recv)(msg);
+
+								match &self.on_receive {
+									Some(on_receive) => on_receive(msg),
+									None => (),
+								}
+
 								Ok(())
 							}
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -169,11 +170,60 @@ pub mod client {
 
 	impl<R, D> Drop for Client<R, D>
 	where
-		R: Fn(&[u8]),
-		D: Fn(),
+		R: Fn(&[u8]) + Clone,
+		D: Fn() + Clone,
 	{
 		fn drop(&mut self) {
 			self.disconnect().unwrap();
+		}
+	}
+
+	pub struct ClientBuilder<R, D>
+	where
+		R: Fn(&[u8]) + Clone,
+		D: Fn() + Clone,
+	{
+		on_receive: Option<R>,
+		on_disconnected: Option<D>,
+		blocking: bool,
+	}
+
+	impl<R, D> ClientBuilder<R, D>
+	where
+		R: Fn(&[u8]) + Clone,
+		D: Fn() + Clone,
+	{
+		pub fn new() -> Self {
+			Self {
+				on_receive: None,
+				on_disconnected: None,
+				blocking: false,
+			}
+		}
+
+		pub fn build(&self) -> Client<R, D> {
+			Client {
+				on_receive: self.on_receive.clone(),
+				on_disconnected: self.on_disconnected.clone(),
+				blocking: self.blocking,
+				connected: false,
+				sock: None,
+			}
+		}
+
+		pub fn on_receive(&mut self, on_receive: R) -> &mut Self {
+			self.on_receive = Some(on_receive);
+			self
+		}
+
+		pub fn on_disconnected(&mut self, on_disconnected: D) -> &mut Self {
+			self.on_disconnected = Some(on_disconnected);
+			self
+		}
+
+		pub fn blocking(&mut self) -> &mut Self {
+			self.blocking = true;
+			self
 		}
 	}
 }

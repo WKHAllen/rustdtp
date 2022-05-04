@@ -5,8 +5,8 @@ mod client;
 mod server;
 mod util;
 
-pub use client::client::*;
-pub use server::server::*;
+pub use client::client::Client;
+pub use server::server::Server;
 
 #[cfg(test)]
 mod tests {
@@ -18,7 +18,7 @@ mod tests {
 	const TEST_PORT: u16 = 29275;
 	const SLEEP_TIME: u64 = 100;
 
-	fn server_on_recv(client_id: usize, message: &[u8]) {
+	fn server_on_receive(client_id: usize, message: &[u8]) {
 		println!(
 			"Message from client #{}: {}",
 			client_id,
@@ -37,7 +37,7 @@ mod tests {
 		println!("Client #{} disconnected", client_id);
 	}
 
-	fn client_on_recv(message: &[u8]) {
+	fn client_on_receive(message: &[u8]) {
 		println!(
 			"Message from server: {}",
 			match std::str::from_utf8(message) {
@@ -86,7 +86,7 @@ mod tests {
 	#[test]
 	fn test_serve() {
 		let mut server = Server::new(
-			Box::new(server_on_recv),
+			Box::new(server_on_receive),
 			Box::new(server_on_connect),
 			Box::new(server_on_disconnect),
 		);
@@ -96,8 +96,25 @@ mod tests {
 	}
 
 	#[test]
+	fn test_server_builder() {
+		let mut server = Server::new()
+			.on_receive(server_on_receive)
+			.on_connect(server_on_connect)
+			.on_disconnect(server_on_disconnect)
+			.build();
+	}
+
+	#[test]
+	fn test_client_builder() {
+		let mut client = Client::new()
+			.on_receive(client_on_receive)
+			.on_disconnected(client_on_disconnected)
+			.build();
+	}
+
+	#[test]
 	fn test_all() {
-		let mut server = Server::new(server_on_recv, server_on_connect, server_on_disconnect);
+		let mut server = Server::new(server_on_receive, server_on_connect, server_on_disconnect);
 		let server_thread = std::thread::spawn(move || {
 			server.start_default_host(TEST_PORT).unwrap();
 			thread::sleep(Duration::from_millis(2 * SLEEP_TIME));
@@ -111,7 +128,7 @@ mod tests {
 		thread::sleep(Duration::from_millis(SLEEP_TIME));
 
 		let client_thread = std::thread::spawn(move || {
-			let mut client = Client::new(client_on_recv, client_on_disconnected);
+			let mut client = Client::new(client_on_receive, client_on_disconnected);
 			client.connect_default_host(TEST_PORT).unwrap();
 			thread::sleep(Duration::from_millis(2 * SLEEP_TIME));
 

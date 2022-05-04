@@ -9,13 +9,14 @@ pub mod server {
 
 	pub struct Server<R, C, D>
 	where
-		R: Fn(usize, &[u8]),
-		C: Fn(usize),
-		D: Fn(usize),
+		R: Fn(usize, &[u8]) + Clone,
+		C: Fn(usize) + Clone,
+		D: Fn(usize) + Clone,
 	{
-		on_recv: R,
-		on_connect: C,
-		on_disconnect: D,
+		on_receive: Option<R>,
+		on_connect: Option<C>,
+		on_disconnect: Option<D>,
+		blocking: bool,
 		serving: bool,
 		next_client_id: usize,
 		sock: Option<TcpListener>,
@@ -26,20 +27,12 @@ pub mod server {
 
 	impl<R, C, D> Server<R, C, D>
 	where
-		R: Fn(usize, &[u8]),
-		C: Fn(usize),
-		D: Fn(usize),
+		R: Fn(usize, &[u8]) + Clone,
+		C: Fn(usize) + Clone,
+		D: Fn(usize) + Clone,
 	{
-		pub fn new(on_recv: R, on_connect: C, on_disconnect: D) -> Self {
-			Self {
-				on_recv,
-				on_connect,
-				on_disconnect,
-				serving: false,
-				next_client_id: 0,
-				sock: None,
-				clients: HashMap::new(),
-			}
+		pub fn new() -> ServerBuilder<R, C, D> {
+			ServerBuilder::new()
 		}
 
 		pub fn start(&mut self, host: &str, port: u16) -> io::Result<()> {
@@ -96,7 +89,12 @@ pub mod server {
 
 						self.exchange_keys(client_id, &conn)?;
 						self.clients.insert(client_id, conn);
-						(self.on_connect)(client_id);
+
+						match &self.on_connect {
+							Some(on_connect) => on_connect(client_id),
+							None => (),
+						}
+
 						Ok(())
 					}
 					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -149,7 +147,12 @@ pub mod server {
 
 									// TODO: decrypt data
 									let msg = buffer.as_slice();
-									(self.on_recv)(client_id, msg);
+
+									match &self.on_receive {
+										Some(on_receive) => on_receive(client_id, msg),
+										None => (),
+									}
+
 									Ok(())
 								}
 								Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -281,12 +284,73 @@ pub mod server {
 
 	impl<R, C, D> Drop for Server<R, C, D>
 	where
-		R: Fn(usize, &[u8]),
-		C: Fn(usize),
-		D: Fn(usize),
+		R: Fn(usize, &[u8]) + Clone,
+		C: Fn(usize) + Clone,
+		D: Fn(usize) + Clone,
 	{
 		fn drop(&mut self) {
 			self.stop().unwrap();
+		}
+	}
+
+	pub struct ServerBuilder<R, C, D>
+	where
+		R: Fn(usize, &[u8]) + Clone,
+		C: Fn(usize) + Clone,
+		D: Fn(usize) + Clone,
+	{
+		on_receive: Option<R>,
+		on_connect: Option<C>,
+		on_disconnect: Option<D>,
+		blocking: bool,
+	}
+
+	impl<R, C, D> ServerBuilder<R, C, D>
+	where
+		R: Fn(usize, &[u8]) + Clone,
+		C: Fn(usize) + Clone,
+		D: Fn(usize) + Clone,
+	{
+		pub fn new() -> Self {
+			Self {
+				on_receive: None,
+				on_connect: None,
+				on_disconnect: None,
+				blocking: false,
+			}
+		}
+
+		pub fn build(&self) -> Server<R, C, D> {
+			Server {
+				on_receive: self.on_receive.clone(),
+				on_connect: self.on_connect.clone(),
+				on_disconnect: self.on_disconnect.clone(),
+				blocking: self.blocking,
+				serving: false,
+				next_client_id: 0,
+				sock: None,
+				clients: HashMap::new(),
+			}
+		}
+
+		pub fn on_receive(&mut self, on_receive: R) -> &mut Self {
+			self.on_receive = Some(on_receive);
+			self
+		}
+
+		pub fn on_connect(&mut self, on_connect: C) -> &mut Self {
+			self.on_connect = Some(on_connect);
+			self
+		}
+
+		pub fn on_disconnect(&mut self, on_disconnect: D) -> &mut Self {
+			self.on_disconnect = Some(on_disconnect);
+			self
+		}
+
+		pub fn blocking(&mut self) -> &mut Self {
+			self.blocking = true;
+			self
 		}
 	}
 }
