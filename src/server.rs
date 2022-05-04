@@ -1,8 +1,5 @@
-#[path = "util.rs"]
-mod util;
-
 pub mod server {
-	use super::util::*;
+	use crate::util::*;
 	use std::collections::HashMap;
 	use std::io;
 	use std::io::{Read, Write};
@@ -10,17 +7,15 @@ pub mod server {
 	use std::thread;
 	use std::time::Duration;
 
-	type OnRecvFunc<T> = fn(usize, &[u8], &T);
-	type OnConnectFunc<U> = fn(usize, &U);
-	type OnDisconnectFunc<V> = fn(usize, &V);
-
-	pub struct Server<'a, T, U, V: 'a> {
-		on_recv: OnRecvFunc<T>,
-		on_connect: OnConnectFunc<U>,
-		on_disconnect: OnDisconnectFunc<V>,
-		on_recv_arg: &'a T,
-		on_connect_arg: &'a U,
-		on_disconnect_arg: &'a V,
+	pub struct Server<R, C, D>
+	where
+		R: Fn(usize, &[u8]),
+		C: Fn(usize),
+		D: Fn(usize),
+	{
+		on_recv: R,
+		on_connect: C,
+		on_disconnect: D,
 		serving: bool,
 		next_client_id: usize,
 		sock: Option<TcpListener>,
@@ -29,22 +24,17 @@ pub mod server {
 		// TODO: add other attributes
 	}
 
-	impl<'a, T, U, V> Server<'a, T, U, V> {
-		pub fn new(
-			on_recv: OnRecvFunc<T>,
-			on_connect: OnConnectFunc<U>,
-			on_disconnect: OnDisconnectFunc<V>,
-			on_recv_arg: &'a T,
-			on_connect_arg: &'a U,
-			on_disconnect_arg: &'a V,
-		) -> Server<'a, T, U, V> {
-			Server {
+	impl<R, C, D> Server<R, C, D>
+	where
+		R: Fn(usize, &[u8]),
+		C: Fn(usize),
+		D: Fn(usize),
+	{
+		pub fn new(on_recv: R, on_connect: C, on_disconnect: D) -> Self {
+			Self {
 				on_recv,
 				on_connect,
 				on_disconnect,
-				on_recv_arg,
-				on_connect_arg,
-				on_disconnect_arg,
 				serving: false,
 				next_client_id: 0,
 				sock: None,
@@ -106,7 +96,7 @@ pub mod server {
 
 						self.exchange_keys(client_id, &conn)?;
 						self.clients.insert(client_id, conn);
-						(self.on_connect)(client_id, self.on_connect_arg);
+						(self.on_connect)(client_id);
 						Ok(())
 					}
 					Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -121,6 +111,7 @@ pub mod server {
 
 				if result.is_err() {
 					let result_err = result.err().unwrap();
+
 					if result_err.kind() == io::ErrorKind::Other {
 						return Ok(());
 					} else {
@@ -149,7 +140,7 @@ pub mod server {
 						Ok(size_len) => {
 							assert_eq!(size_len, LEN_SIZE);
 
-							let msg_size = ascii_to_dec(size_buffer);
+							let msg_size = decode_message_size(size_buffer);
 							let mut buffer = Vec::with_capacity(msg_size);
 
 							match client.read(&mut buffer) {
@@ -158,7 +149,7 @@ pub mod server {
 
 									// TODO: decrypt data
 									let msg = buffer.as_slice();
-									(self.on_recv)(client_id, msg, self.on_recv_arg);
+									(self.on_recv)(client_id, msg);
 									Ok(())
 								}
 								Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -187,6 +178,7 @@ pub mod server {
 
 					if result.is_err() {
 						let result_err = result.err().unwrap();
+
 						if result_err.kind() == io::ErrorKind::Other {
 							return Ok(());
 						} else {
@@ -204,6 +196,7 @@ pub mod server {
 			for (client_id, _) in &self.clients {
 				self.serve_client(*client_id)?;
 			}
+
 			Ok(())
 		}
 
@@ -215,7 +208,7 @@ pub mod server {
 			match self.clients.get(&client_id) {
 				Some(mut client) => {
 					// TODO: encrypt data
-					let size = dec_to_ascii(data.len());
+					let size = encode_message_size(data.len());
 					let mut buffer = vec![];
 					buffer.extend_from_slice(&size);
 					buffer.extend_from_slice(data);
@@ -231,6 +224,7 @@ pub mod server {
 			for client_id in client_ids {
 				self.send(data, *client_id)?;
 			}
+
 			Ok(())
 		}
 
@@ -238,6 +232,7 @@ pub mod server {
 			for (client_id, _) in &self.clients {
 				self.send(data, *client_id)?;
 			}
+
 			Ok(())
 		}
 
@@ -284,7 +279,12 @@ pub mod server {
 		}
 	}
 
-	impl<'a, T, U, V> Drop for Server<'a, T, U, V> {
+	impl<R, C, D> Drop for Server<R, C, D>
+	where
+		R: Fn(usize, &[u8]),
+		C: Fn(usize),
+		D: Fn(usize),
+	{
 		fn drop(&mut self) {
 			self.stop().unwrap();
 		}

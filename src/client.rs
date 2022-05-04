@@ -1,39 +1,32 @@
-#[path = "util.rs"]
-mod util;
-
 pub mod client {
-	use super::util::*;
+	use crate::util::*;
 	use std::io;
 	use std::io::{Read, Write};
 	use std::net::{Shutdown, SocketAddr, TcpStream};
 	use std::thread;
 	use std::time::Duration;
 
-	type OnRecvFunc<T> = fn(&[u8], &T);
-	type OnDisconnectedFunc<U> = fn(&U);
-
-	pub struct Client<'a, T, U: 'a> {
-		on_recv: OnRecvFunc<T>,
-		on_disconnected: OnDisconnectedFunc<U>,
-		on_recv_arg: &'a T,
-		on_disconnected_arg: &'a U,
+	pub struct Client<R, D>
+	where
+		R: Fn(&[u8]),
+		D: Fn(),
+	{
+		on_recv: R,
+		on_disconnected: D,
 		connected: bool,
 		sock: Option<TcpStream>,
 		// TODO: add other attributes
 	}
 
-	impl<'a, T, U> Client<'a, T, U> {
-		pub fn new(
-			on_recv: OnRecvFunc<T>,
-			on_disconnected: OnDisconnectedFunc<U>,
-			on_recv_arg: &'a T,
-			on_disconnected_arg: &'a U,
-		) -> Client<'a, T, U> {
-			Client {
+	impl<R, D> Client<R, D>
+	where
+		R: Fn(&[u8]),
+		D: Fn(),
+	{
+		pub fn new(on_recv: R, on_disconnected: D) -> Self {
+			Self {
 				on_recv,
 				on_disconnected,
-				on_recv_arg,
-				on_disconnected_arg,
 				connected: false,
 				sock: None,
 			}
@@ -79,7 +72,7 @@ pub mod client {
 					Ok(size_len) => {
 						assert_eq!(size_len, LEN_SIZE);
 
-						let msg_size = ascii_to_dec(size_buffer);
+						let msg_size = decode_message_size(size_buffer);
 						let mut buffer = Vec::with_capacity(msg_size);
 
 						match conn.read(&mut buffer) {
@@ -88,7 +81,7 @@ pub mod client {
 
 								// TODO: decrypt data
 								let msg = buffer.as_slice();
-								(self.on_recv)(msg, self.on_recv_arg);
+								(self.on_recv)(msg);
 								Ok(())
 							}
 							Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -117,6 +110,7 @@ pub mod client {
 
 				if result.is_err() {
 					let result_err = result.err().unwrap();
+
 					if result_err.kind() == io::ErrorKind::Other {
 						return Ok(());
 					} else {
@@ -139,13 +133,14 @@ pub mod client {
 			}
 
 			// TODO: encrypt data
-			let size = dec_to_ascii(data.len());
+			let size = encode_message_size(data.len());
 			let mut buffer = vec![];
 			buffer.extend_from_slice(&size);
 			buffer.extend_from_slice(data);
 
 			let mut conn = self.sock.as_ref().unwrap();
 			conn.write(&buffer[..])?;
+
 			Ok(())
 		}
 
@@ -169,6 +164,16 @@ pub mod client {
 
 			let conn = self.sock.as_ref().unwrap();
 			conn.peer_addr()
+		}
+	}
+
+	impl<R, D> Drop for Client<R, D>
+	where
+		R: Fn(&[u8]),
+		D: Fn(),
+	{
+		fn drop(&mut self) {
+			self.disconnect().unwrap();
 		}
 	}
 }

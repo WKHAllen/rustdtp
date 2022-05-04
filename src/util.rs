@@ -2,20 +2,24 @@ use std::convert::TryFrom;
 
 pub const LEN_SIZE: usize = 5;
 
-pub fn dec_to_ascii(mut dec: usize) -> [u8; LEN_SIZE] {
-	let mut ascii = [0u8; LEN_SIZE];
+pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
+	let mut encoded_size = [0u8; LEN_SIZE];
+
 	for i in 0..LEN_SIZE {
-		ascii[LEN_SIZE - i - 1] = u8::try_from(dec % 256).unwrap();
-		dec >>= 8;
+		encoded_size[LEN_SIZE - i - 1] = u8::try_from(size % 256).unwrap();
+		size >>= 8;
 	}
-	ascii
+
+	encoded_size
 }
 
-pub fn ascii_to_dec(ascii: [u8; LEN_SIZE]) -> usize {
-	let mut dec: usize = 0;
+pub fn decode_message_size(encoded_size: [u8; LEN_SIZE]) -> usize {
+	let mut size: usize = 0;
+
 	for i in 0..LEN_SIZE {
-		dec <<= 8;
-		dec += usize::from(ascii[i]);
+		size <<= 8;
+		size += usize::from(encoded_size[i]);
 	}
-	dec
+
+	size
 }
