@@ -5,8 +5,8 @@ mod client;
 mod server;
 mod util;
 
-pub use client::client::Client;
-pub use server::server::Server;
+pub use self::client::client::Client;
+pub use self::server::server::Server;
 
 #[cfg(test)]
 mod tests {
