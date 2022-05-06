@@ -46,7 +46,15 @@ pub mod client {
 		}
 
 		pub fn connect_default_host(&mut self, port: u16) -> io::Result<()> {
-			self.connect("0.0.0.0", port)
+			self.connect(DEFAULT_HOST, port)
+		}
+
+		pub fn connect_default_port(&mut self, host: &str) -> io::Result<()> {
+			self.connect(host, DEFAULT_PORT)
+		}
+
+		pub fn connect_default(&mut self) -> io::Result<()> {
+			self.connect(DEFAULT_HOST, DEFAULT_PORT)
 		}
 
 		pub fn disconnect(&mut self) -> io::Result<()> {
@@ -174,7 +182,9 @@ pub mod client {
 		D: Fn() + Clone,
 	{
 		fn drop(&mut self) {
-			self.disconnect().unwrap();
+			if self.connected {
+				self.disconnect().unwrap();
+			}
 		}
 	}
 

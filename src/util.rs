@@ -2,6 +2,9 @@ use std::convert::TryFrom;
 
 pub const LEN_SIZE: usize = 5;
 
+pub const DEFAULT_HOST: &str = "0.0.0.0";
+pub const DEFAULT_PORT: u16 = 29275;
+
 pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
 	let mut encoded_size = [0u8; LEN_SIZE];
 

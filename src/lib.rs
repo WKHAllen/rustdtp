@@ -18,6 +18,15 @@ mod tests {
 	const TEST_PORT: u16 = 29275;
 	const SLEEP_TIME: u64 = 100;
 
+	macro_rules! sleep {
+		($x:expr) => {
+			thread::sleep(Duration::from_millis($x))
+		};
+		() => {
+			thread::sleep(Duration::from_millis(SLEEP_TIME))
+		};
+	}
+
 	fn server_on_receive(client_id: usize, message: &[u8]) {
 		println!(
 			"Message from client #{}: {}",
@@ -84,56 +93,69 @@ mod tests {
 	}
 
 	#[test]
-	fn test_serve() {
-		let mut server = Server::new(
-			Box::new(server_on_receive),
-			Box::new(server_on_connect),
-			Box::new(server_on_disconnect),
-		);
-		server.start_default_host(TEST_PORT).unwrap();
+	fn test_server() {
+		let mut server = Server::new()
+			.on_receive(server_on_receive)
+			.on_connect(server_on_connect)
+			.on_disconnect(server_on_disconnect)
+			.build();
+
+		server.start_default().unwrap();
 		println!("Address: {}", server.get_addr().unwrap());
+		sleep!();
 		server.stop().unwrap();
 	}
 
 	#[test]
 	fn test_server_builder() {
 		let mut server = Server::new()
-			.on_receive(server_on_receive)
-			.on_connect(server_on_connect)
-			.on_disconnect(server_on_disconnect)
+			.on_receive(|_, _| {})
+			.on_connect(|_| {})
+			.on_disconnect(|_| {})
+			.blocking()
 			.build();
 	}
 
 	#[test]
 	fn test_client_builder() {
 		let mut client = Client::new()
-			.on_receive(client_on_receive)
-			.on_disconnected(client_on_disconnected)
+			.on_receive(|_| {})
+			.on_disconnected(|| {})
+			.blocking()
 			.build();
 	}
 
 	#[test]
 	fn test_all() {
-		let mut server = Server::new(server_on_receive, server_on_connect, server_on_disconnect);
-		let server_thread = std::thread::spawn(move || {
+		let mut server = Server::new()
+			.on_receive(server_on_receive)
+			.on_connect(server_on_connect)
+			.on_disconnect(server_on_disconnect)
+			.build();
+
+		let server_thread = thread::spawn(move || {
 			server.start_default_host(TEST_PORT).unwrap();
-			thread::sleep(Duration::from_millis(2 * SLEEP_TIME));
+			sleep!();
 
 			server.send_all("Hello, client #0.".as_bytes()).unwrap();
-			thread::sleep(Duration::from_millis(3 * SLEEP_TIME));
+			sleep!();
 
 			server.stop().unwrap();
 		});
 
-		thread::sleep(Duration::from_millis(SLEEP_TIME));
+		sleep!();
 
-		let client_thread = std::thread::spawn(move || {
-			let mut client = Client::new(client_on_receive, client_on_disconnected);
+		let mut client = Client::new()
+			.on_receive(client_on_receive)
+			.on_disconnected(client_on_disconnected)
+			.build();
+
+		let client_thread = thread::spawn(move || {
 			client.connect_default_host(TEST_PORT).unwrap();
-			thread::sleep(Duration::from_millis(2 * SLEEP_TIME));
+			sleep!();
 
 			client.send("Hello, server.".as_bytes()).unwrap();
-			thread::sleep(Duration::from_millis(SLEEP_TIME));
+			sleep!();
 
 			client.disconnect().unwrap();
 		});

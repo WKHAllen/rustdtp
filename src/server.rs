@@ -51,15 +51,15 @@ pub mod server {
 		}
 
 		pub fn start_default_host(&mut self, port: u16) -> io::Result<()> {
-			self.start("0.0.0.0", port)
+			self.start(DEFAULT_HOST, port)
 		}
 
 		pub fn start_default_port(&mut self, host: &str) -> io::Result<()> {
-			self.start(host, 0)
+			self.start(host, DEFAULT_PORT)
 		}
 
 		pub fn start_default(&mut self) -> io::Result<()> {
-			self.start("0.0.0.0", 0)
+			self.start(DEFAULT_HOST, DEFAULT_PORT)
 		}
 
 		pub fn stop(&mut self) -> io::Result<()> {
@@ -289,7 +289,9 @@ pub mod server {
 		D: Fn(usize) + Clone,
 	{
 		fn drop(&mut self) {
-			self.stop().unwrap();
+			if self.serving {
+				self.stop().unwrap();
+			}
 		}
 	}
 
