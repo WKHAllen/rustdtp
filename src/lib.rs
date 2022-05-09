@@ -5,8 +5,8 @@ mod client;
 mod server;
 mod util;
 
-pub use self::client::client::Client;
-pub use self::server::server::Server;
+pub use client::Client;
+pub use server::Server;
 
 #[cfg(test)]
 mod tests {
@@ -93,6 +93,24 @@ mod tests {
 	}
 
 	#[test]
+	fn test_server_builder() {
+		let _server = Server::new()
+			.on_receive(|_, _| {})
+			.on_connect(|_| {})
+			.on_disconnect(|_| {})
+			.build();
+	}
+
+	#[test]
+	fn test_client_builder() {
+		let _client = Client::new()
+			.on_receive(|_| {})
+			.on_disconnected(|| {})
+			.blocking()
+			.build();
+	}
+
+	#[test]
 	fn test_server() {
 		let mut server = Server::new()
 			.on_receive(server_on_receive)
@@ -101,28 +119,12 @@ mod tests {
 			.build();
 
 		server.start_default().unwrap();
+		sleep!();
+
 		println!("Address: {}", server.get_addr().unwrap());
 		sleep!();
+
 		server.stop().unwrap();
-	}
-
-	#[test]
-	fn test_server_builder() {
-		let mut server = Server::new()
-			.on_receive(|_, _| {})
-			.on_connect(|_| {})
-			.on_disconnect(|_| {})
-			.blocking()
-			.build();
-	}
-
-	#[test]
-	fn test_client_builder() {
-		let mut client = Client::new()
-			.on_receive(|_| {})
-			.on_disconnected(|| {})
-			.blocking()
-			.build();
 	}
 
 	#[test]
@@ -133,16 +135,7 @@ mod tests {
 			.on_disconnect(server_on_disconnect)
 			.build();
 
-		let server_thread = thread::spawn(move || {
-			server.start_default_host(TEST_PORT).unwrap();
-			sleep!();
-
-			server.send_all("Hello, client #0.".as_bytes()).unwrap();
-			sleep!();
-
-			server.stop().unwrap();
-		});
-
+		server.start_default_host(TEST_PORT).unwrap();
 		sleep!();
 
 		let mut client = Client::new()
@@ -150,17 +143,18 @@ mod tests {
 			.on_disconnected(client_on_disconnected)
 			.build();
 
-		let client_thread = thread::spawn(move || {
-			client.connect_default_host(TEST_PORT).unwrap();
-			sleep!();
+		client.connect_default_host(TEST_PORT).unwrap();
+		sleep!();
 
-			client.send("Hello, server.".as_bytes()).unwrap();
-			sleep!();
+		server.send_all("Hello, client #0.".as_bytes()).unwrap();
+		sleep!();
 
-			client.disconnect().unwrap();
-		});
+		client.send("Hello, server.".as_bytes()).unwrap();
+		sleep!();
 
-		client_thread.join().unwrap();
-		server_thread.join().unwrap();
+		client.disconnect().unwrap();
+		sleep!();
+
+		server.stop().unwrap();
 	}
 }
