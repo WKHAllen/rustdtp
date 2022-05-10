@@ -15,7 +15,6 @@ mod tests {
 	use std::time::Duration;
 	use util::*;
 
-	const TEST_PORT: u16 = 29275;
 	const SLEEP_TIME: u64 = 100;
 
 	macro_rules! sleep {
@@ -97,53 +96,52 @@ mod tests {
 		let _server = Server::new()
 			.on_receive(|_, _| {})
 			.on_connect(|_| {})
-			.on_disconnect(|_| {})
-			.build();
+			.on_disconnect(|_| {});
 	}
 
 	#[test]
 	fn test_client_builder() {
-		let _client = Client::new()
-			.on_receive(|_| {})
-			.on_disconnected(|| {})
-			.blocking()
-			.build();
+		let _client = Client::new().on_receive(|_| {}).on_disconnected(|| {});
 	}
 
 	#[test]
 	fn test_server() {
-		let mut server = Server::new()
+		let server = Server::new()
 			.on_receive(server_on_receive)
 			.on_connect(server_on_connect)
 			.on_disconnect(server_on_disconnect)
-			.build();
-
-		server.start_default().unwrap();
-		sleep!();
+			.start_default_host(0)
+			.unwrap();
 
 		println!("Address: {}", server.get_addr().unwrap());
-		sleep!();
+
+		assert!(server.serving().unwrap());
 
 		server.stop().unwrap();
+
+		assert!(!server.serving().unwrap());
 	}
 
 	#[test]
 	fn test_all() {
-		let mut server = Server::new()
+		let server = Server::new()
 			.on_receive(server_on_receive)
 			.on_connect(server_on_connect)
 			.on_disconnect(server_on_disconnect)
-			.build();
+			.start("127.0.0.1", 0)
+			.unwrap();
 
-		server.start_default_host(TEST_PORT).unwrap();
 		sleep!();
 
-		let mut client = Client::new()
+		let server_addr = server.get_addr().unwrap();
+		println!("Server address: {}", server_addr);
+
+		let client = Client::new()
 			.on_receive(client_on_receive)
 			.on_disconnected(client_on_disconnected)
-			.build();
+			.connect("127.0.0.1", server_addr.port())
+			.unwrap();
 
-		client.connect_default_host(TEST_PORT).unwrap();
 		sleep!();
 
 		server.send_all("Hello, client #0.".as_bytes()).unwrap();

@@ -2,80 +2,80 @@ use crate::util::*;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+enum ClientCommand {
+	Disconnect,
+	Send { data: Vec<u8> },
+	Connected,
+	GetAddr,
+	GetServerAddr,
+}
+
+enum ClientCommandReturn {
+	Disconnect(io::Result<()>),
+	Send(io::Result<()>),
+	Connected(bool),
+	GetAddr(io::Result<SocketAddr>),
+	GetServerAddr(io::Result<SocketAddr>),
+}
+
 pub struct Client<R, D>
 where
-	R: Fn(&[u8]) + Clone,
-	D: Fn() + Clone,
+	R: Fn(&[u8]) + Clone + Send + 'static,
+	D: Fn() + Clone + Send + 'static,
 {
 	on_receive: Option<R>,
 	on_disconnected: Option<D>,
 	connected: bool,
-	sock: Option<TcpStream>,
-	// TODO: add other attributes
+	shutdown: bool,
+	cmd_receiver: mpsc::Receiver<ClientCommand>,
+	cmd_return_sender: mpsc::Sender<ClientCommandReturn>,
 }
 
 impl<R, D> Client<R, D>
 where
-	R: Fn(&[u8]) + Clone,
-	D: Fn() + Clone,
+	R: Fn(&[u8]) + Clone + Send + 'static,
+	D: Fn() + Clone + Send + 'static,
 {
 	pub fn new() -> ClientBuilder<R, D> {
 		ClientBuilder::new()
 	}
 
-	pub fn connect(&mut self, host: &str, port: u16) -> io::Result<()> {
+	pub fn connect(&mut self, stream: &mut TcpStream) -> io::Result<()> {
 		if self.connected {
 			return Err(io::Error::new(io::ErrorKind::Other, "Already connected"));
 		}
 
-		let addr = format!("{}:{}", host, port);
-		let stream = TcpStream::connect(addr)?;
-
-		self.sock = Some(stream);
 		self.connected = true;
 
 		self.exchange_keys()?;
-		self.handle()
+		self.handle(stream)
 	}
 
-	pub fn connect_default_host(&mut self, port: u16) -> io::Result<()> {
-		self.connect(DEFAULT_HOST, port)
-	}
-
-	pub fn connect_default_port(&mut self, host: &str) -> io::Result<()> {
-		self.connect(host, DEFAULT_PORT)
-	}
-
-	pub fn connect_default(&mut self) -> io::Result<()> {
-		self.connect(DEFAULT_HOST, DEFAULT_PORT)
-	}
-
-	pub fn disconnect(&mut self) -> io::Result<()> {
-		if !self.connected {
-			return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
-		}
-
-		self.connected = false;
-		self.sock.as_ref().unwrap().shutdown(Shutdown::Both)
-	}
-
-	fn handle(&self) -> io::Result<()> {
-		let mut conn = self.sock.as_ref().unwrap();
-		conn.set_nonblocking(true)?;
-
+	fn handle(&mut self, stream: &mut TcpStream) -> io::Result<()> {
 		loop {
+			if !self.connected {
+				if !self.shutdown {
+					stream.shutdown(Shutdown::Both)?;
+
+					self.shutdown = true;
+				}
+
+				return Ok(());
+			}
+
 			let mut size_buffer = [0; LEN_SIZE];
-			let result = match conn.read(&mut size_buffer) {
+			let result = match stream.read(&mut size_buffer) {
 				Ok(size_len) => {
 					assert_eq!(size_len, LEN_SIZE);
 
 					let msg_size = decode_message_size(size_buffer);
 					let mut buffer = Vec::with_capacity(msg_size);
 
-					match conn.read(&mut buffer) {
+					match stream.read(&mut buffer) {
 						Ok(len) => {
 							assert_eq!(len, msg_size);
 
@@ -123,7 +123,10 @@ where
 				}
 			}
 
-			thread::sleep(Duration::from_millis(10));
+			match self.cmd_receiver.recv_timeout(Duration::from_millis(10)) {
+				Ok(cmd) => self.execute_command(cmd, stream),
+				Err(_) => Ok(()),
+			}?;
 		}
 	}
 
@@ -132,7 +135,20 @@ where
 		Ok(())
 	}
 
-	pub fn send(&self, data: &[u8]) -> io::Result<()> {
+	pub fn disconnect(&mut self, stream: &TcpStream) -> io::Result<()> {
+		if !self.connected {
+			return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+		}
+
+		stream.shutdown(Shutdown::Both)?;
+
+		self.connected = false;
+		self.shutdown = true;
+
+		Ok(())
+	}
+
+	pub fn send(&self, stream: &mut TcpStream, data: &[u8]) -> io::Result<()> {
 		if !self.connected {
 			return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
 		}
@@ -143,8 +159,7 @@ where
 		buffer.extend_from_slice(&size);
 		buffer.extend_from_slice(data);
 
-		let mut conn = self.sock.as_ref().unwrap();
-		conn.write(&buffer[..])?;
+		stream.write(&buffer[..])?;
 
 		Ok(())
 	}
@@ -153,32 +168,157 @@ where
 		self.connected
 	}
 
-	pub fn get_addr(&self) -> io::Result<SocketAddr> {
+	pub fn get_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
 		if !self.connected {
 			return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
 		}
 
-		let conn = self.sock.as_ref().unwrap();
-		conn.local_addr()
+		stream.local_addr()
 	}
 
-	pub fn get_server_addr(&self) -> io::Result<SocketAddr> {
+	pub fn get_server_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
 		if !self.connected {
 			return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
 		}
 
-		let conn = self.sock.as_ref().unwrap();
-		conn.peer_addr()
+		stream.peer_addr()
+	}
+
+	fn execute_command(&mut self, command: ClientCommand, stream: &mut TcpStream) -> io::Result<()> {
+		match match command {
+			ClientCommand::Disconnect => {
+				let ret = self.disconnect(&stream);
+				self
+					.cmd_return_sender
+					.send(ClientCommandReturn::Disconnect(ret))
+			}
+			ClientCommand::Send { data } => self
+				.cmd_return_sender
+				.send(ClientCommandReturn::Send(self.send(stream, &data))),
+			ClientCommand::Connected => self
+				.cmd_return_sender
+				.send(ClientCommandReturn::Connected(self.connected())),
+			ClientCommand::GetAddr => self
+				.cmd_return_sender
+				.send(ClientCommandReturn::GetAddr(self.get_addr(&stream))),
+			ClientCommand::GetServerAddr => {
+				self
+					.cmd_return_sender
+					.send(ClientCommandReturn::GetServerAddr(
+						self.get_server_addr(&stream),
+					))
+			}
+		} {
+			Ok(()) => Ok(()),
+			Err(err) => Err(io::Error::new(io::ErrorKind::Other, err)),
+		}
 	}
 }
 
 impl<R, D> Drop for Client<R, D>
 where
-	R: Fn(&[u8]) + Clone,
-	D: Fn() + Clone,
+	R: Fn(&[u8]) + Clone + Send + 'static,
+	D: Fn() + Clone + Send + 'static,
 {
 	fn drop(&mut self) {
 		if self.connected {
+			self.connected = false;
+		}
+	}
+}
+
+pub struct ClientHandle {
+	cmd_sender: mpsc::Sender<ClientCommand>,
+	cmd_return_receiver: mpsc::Receiver<ClientCommandReturn>,
+}
+
+impl ClientHandle {
+	pub fn disconnect(&self) -> io::Result<()> {
+		match self.cmd_sender.send(ClientCommand::Disconnect) {
+			Ok(()) => match self.cmd_return_receiver.recv() {
+				Ok(received) => match received {
+					ClientCommandReturn::Disconnect(value) => value,
+					_ => Err(io::Error::new(
+						io::ErrorKind::Other,
+						"Incorrect return value from command channel",
+					)),
+				},
+				Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+			},
+			Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+		}
+	}
+
+	pub fn send(&self, data: &[u8]) -> io::Result<()> {
+		match self.cmd_sender.send(ClientCommand::Send {
+			data: data.to_vec(),
+		}) {
+			Ok(()) => match self.cmd_return_receiver.recv() {
+				Ok(received) => match received {
+					ClientCommandReturn::Send(value) => value,
+					_ => Err(io::Error::new(
+						io::ErrorKind::Other,
+						"Incorrect return value from command channel",
+					)),
+				},
+				Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+			},
+			Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+		}
+	}
+
+	pub fn connected(&self) -> io::Result<bool> {
+		match self.cmd_sender.send(ClientCommand::Connected) {
+			Ok(()) => match self.cmd_return_receiver.recv() {
+				Ok(received) => match received {
+					ClientCommandReturn::Connected(value) => Ok(value),
+					_ => Err(io::Error::new(
+						io::ErrorKind::Other,
+						"Incorrect return value from command channel",
+					)),
+				},
+				Err(_) => Ok(false),
+			},
+			Err(_) => Ok(false),
+		}
+	}
+
+	pub fn get_addr(&self) -> io::Result<SocketAddr> {
+		match self.cmd_sender.send(ClientCommand::GetAddr) {
+			Ok(()) => match self.cmd_return_receiver.recv() {
+				Ok(received) => match received {
+					ClientCommandReturn::GetAddr(value) => value,
+					_ => Err(io::Error::new(
+						io::ErrorKind::Other,
+						"Incorrect return value from command channel",
+					)),
+				},
+				Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+			},
+			Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+		}
+	}
+
+	pub fn get_server_addr(&self) -> io::Result<SocketAddr> {
+		match self.cmd_sender.send(ClientCommand::GetServerAddr) {
+			Ok(()) => match self.cmd_return_receiver.recv() {
+				Ok(received) => match received {
+					ClientCommandReturn::GetServerAddr(value) => value,
+					_ => Err(io::Error::new(
+						io::ErrorKind::Other,
+						"Incorrect return value from command channel",
+					)),
+				},
+				Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+			},
+			Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+		}
+	}
+}
+
+impl Drop for ClientHandle {
+	fn drop(&mut self) {
+		if self.connected().unwrap() {
 			self.disconnect().unwrap();
 		}
 	}
@@ -186,33 +326,22 @@ where
 
 pub struct ClientBuilder<R, D>
 where
-	R: Fn(&[u8]) + Clone,
-	D: Fn() + Clone,
+	R: Fn(&[u8]) + Clone + Send + 'static,
+	D: Fn() + Clone + Send + 'static,
 {
 	on_receive: Option<R>,
 	on_disconnected: Option<D>,
-	blocking: bool,
 }
 
 impl<R, D> ClientBuilder<R, D>
 where
-	R: Fn(&[u8]) + Clone,
-	D: Fn() + Clone,
+	R: Fn(&[u8]) + Clone + Send + 'static,
+	D: Fn() + Clone + Send + 'static,
 {
 	pub fn new() -> Self {
 		Self {
 			on_receive: None,
 			on_disconnected: None,
-			blocking: false,
-		}
-	}
-
-	pub fn build(&self) -> Client<R, D> {
-		Client {
-			on_receive: self.on_receive.clone(),
-			on_disconnected: self.on_disconnected.clone(),
-			connected: false,
-			sock: None,
 		}
 	}
 
@@ -226,8 +355,42 @@ where
 		self
 	}
 
-	pub fn blocking(&mut self) -> &mut Self {
-		self.blocking = true;
-		self
+	pub fn connect(&mut self, host: &str, port: u16) -> io::Result<ClientHandle> {
+		let (cmd_sender, cmd_receiver) = mpsc::channel();
+		let (cmd_return_sender, cmd_return_receiver) = mpsc::channel();
+
+		let addr = format!("{}:{}", host, port);
+		let mut stream = TcpStream::connect(addr)?;
+		stream.set_nonblocking(true)?;
+
+		let mut client = Client {
+			on_receive: self.on_receive.clone(),
+			on_disconnected: self.on_disconnected.clone(),
+			connected: false,
+			shutdown: false,
+			cmd_receiver,
+			cmd_return_sender,
+		};
+
+		thread::spawn(move || {
+			client.connect(&mut stream).unwrap();
+		});
+
+		Ok(ClientHandle {
+			cmd_sender,
+			cmd_return_receiver,
+		})
+	}
+
+	pub fn connect_default_host(&mut self, port: u16) -> io::Result<ClientHandle> {
+		self.connect(DEFAULT_HOST, port)
+	}
+
+	pub fn connect_default_port(&mut self, host: &str) -> io::Result<ClientHandle> {
+		self.connect(host, DEFAULT_PORT)
+	}
+
+	pub fn connect_default(&mut self) -> io::Result<ClientHandle> {
+		self.connect(DEFAULT_HOST, DEFAULT_PORT)
 	}
 }
