@@ -37,8 +37,9 @@ where
 	on_connect: Option<C>,
 	on_disconnect: Option<D>,
 	serving: bool,
-	next_client_id: usize,
+	shutdown: bool,
 	clients: HashMap<usize, TcpStream>,
+	next_client_id: usize,
 	cmd_receiver: mpsc::Receiver<ServerCommand>,
 	cmd_return_sender: mpsc::Sender<ServerCommandReturn>,
 }
@@ -66,6 +67,11 @@ where
 	fn serve(&mut self, listener: TcpListener) -> io::Result<()> {
 		for stream in listener.incoming() {
 			if !self.serving {
+				if !self.shutdown {
+					self.serving = true;
+					self.stop()?;
+				}
+
 				return Ok(());
 			}
 
@@ -105,7 +111,11 @@ where
 				}
 			}
 
-			self.serve_clients()?;
+			let clients_to_remove = self.serve_clients()?;
+
+			for client_id in clients_to_remove {
+				self.clients.remove(&client_id);
+			}
 
 			match self.cmd_receiver.recv_timeout(Duration::from_millis(10)) {
 				Ok(cmd) => self.execute_command(cmd, &listener),
@@ -116,21 +126,32 @@ where
 		unreachable!();
 	}
 
-	fn exchange_keys(&self, client_id: usize, client: &TcpStream) -> io::Result<()> {
+	fn exchange_keys(&self, _client_id: usize, _client: &TcpStream) -> io::Result<()> {
 		// TODO: implement key exchange
 		Ok(())
 	}
 
-	fn serve_client(&self, client_id: usize) -> io::Result<()> {
+	fn serve_client(&self, client_id: usize) -> io::Result<bool> {
 		match self.clients.get(&client_id) {
 			Some(mut client) => {
 				let mut size_buffer = [0; LEN_SIZE];
 				let result = match client.read(&mut size_buffer) {
 					Ok(size_len) => {
+						if size_len == 0 {
+							match &self.on_disconnect {
+								Some(on_disconnect) => on_disconnect(client_id),
+								None => (),
+							}
+
+							client.shutdown(Shutdown::Both)?;
+
+							return Ok(false);
+						}
+
 						assert_eq!(size_len, LEN_SIZE);
 
-						let msg_size = decode_message_size(size_buffer);
-						let mut buffer = Vec::with_capacity(msg_size);
+						let msg_size = decode_message_size(&size_buffer);
+						let mut buffer = vec![0; msg_size];
 
 						match client.read(&mut buffer) {
 							Ok(len) => {
@@ -154,7 +175,7 @@ where
 								}
 							}
 							Err(e) => {
-								Err(e) // TODO: check for client disconnected
+								Err(e)
 							}
 						}
 					}
@@ -166,7 +187,7 @@ where
 						}
 					}
 					Err(e) => {
-						Err(e) // TODO: check for client disconnected
+						Err(e)
 					}
 				};
 
@@ -174,24 +195,28 @@ where
 					let result_err = result.err().unwrap();
 
 					if result_err.kind() == io::ErrorKind::Other {
-						return Ok(());
+						return Ok(true);
 					} else {
 						return Err(result_err);
 					}
 				}
 
-				Ok(())
+				Ok(true)
 			}
 			None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
 		}
 	}
 
-	fn serve_clients(&self) -> io::Result<()> {
+	fn serve_clients(&self) -> io::Result<Vec<usize>> {
+		let mut clients_to_remove = vec![];
+
 		for (client_id, _) in &self.clients {
-			self.serve_client(*client_id)?;
+			if !self.serve_client(*client_id)? {
+				clients_to_remove.push(*client_id);
+			};
 		}
 
-		Ok(())
+		Ok(clients_to_remove)
 	}
 
 	pub fn stop(&mut self) -> io::Result<()> {
@@ -204,6 +229,10 @@ where
 		for (_, client) in &self.clients {
 			client.shutdown(Shutdown::Both)?;
 		}
+
+		self.clients.clear();
+
+		self.shutdown = true;
 
 		Ok(())
 	}
@@ -221,7 +250,9 @@ where
 				buffer.extend_from_slice(&size);
 				buffer.extend_from_slice(data);
 
-				client.write(&buffer[..])?;
+				assert_eq!(buffer.len(), data.len() + LEN_SIZE);
+
+				client.write(&buffer)?;
 				Ok(())
 			}
 			None => Err(io::Error::new(io::ErrorKind::NotFound, "Invalid client ID")),
@@ -286,7 +317,7 @@ where
 				.send(ServerCommandReturn::Send(self.send(&data, client_id))),
 			ServerCommand::SendAll { data } => self
 				.cmd_return_sender
-				.send(ServerCommandReturn::SendAll(self.send_all(&data))),
+				.send(ServerCommandReturn::SendAll(self.send_all(data.as_slice()))),
 			ServerCommand::Serving => self
 				.cmd_return_sender
 				.send(ServerCommandReturn::Serving(self.serving())),
@@ -320,8 +351,10 @@ where
 	D: Fn(usize) + Clone + Send + 'static,
 {
 	fn drop(&mut self) {
-		if self.serving {
-			self.stop().unwrap();
+		self.serving = false;
+
+		while !self.shutdown {
+			thread::sleep(Duration::from_millis(10));
 		}
 	}
 }
@@ -517,6 +550,7 @@ where
 			on_connect: self.on_connect.clone(),
 			on_disconnect: self.on_disconnect.clone(),
 			serving: false,
+			shutdown: false,
 			next_client_id: 0,
 			clients: HashMap::new(),
 			cmd_receiver,
@@ -534,7 +568,7 @@ where
 	}
 
 	pub fn start_default_host(&mut self, port: u16) -> io::Result<ServerHandle> {
-		self.start(DEFAULT_HOST, port)
+		self.start(DEFAULT_SERVER_HOST, port)
 	}
 
 	pub fn start_default_port(&mut self, host: &'static str) -> io::Result<ServerHandle> {
@@ -542,6 +576,6 @@ where
 	}
 
 	pub fn start_default(&mut self) -> io::Result<ServerHandle> {
-		self.start(DEFAULT_HOST, DEFAULT_PORT)
+		self.start(DEFAULT_SERVER_HOST, DEFAULT_PORT)
 	}
 }

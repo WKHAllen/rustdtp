@@ -77,16 +77,16 @@ mod tests {
 
 	#[test]
 	fn test_decode_message_size() {
-		assert_eq!(decode_message_size([0, 0, 0, 0, 0]), 0);
-		assert_eq!(decode_message_size([0, 0, 0, 0, 1]), 1);
-		assert_eq!(decode_message_size([0, 0, 0, 0, 255]), 255);
-		assert_eq!(decode_message_size([0, 0, 0, 1, 0]), 256);
-		assert_eq!(decode_message_size([0, 0, 0, 1, 1]), 257);
-		assert_eq!(decode_message_size([1, 1, 1, 1, 1]), 4311810305);
-		assert_eq!(decode_message_size([1, 2, 3, 4, 5]), 4328719365);
-		assert_eq!(decode_message_size([11, 7, 5, 3, 2]), 47362409218);
+		assert_eq!(decode_message_size(&[0, 0, 0, 0, 0]), 0);
+		assert_eq!(decode_message_size(&[0, 0, 0, 0, 1]), 1);
+		assert_eq!(decode_message_size(&[0, 0, 0, 0, 255]), 255);
+		assert_eq!(decode_message_size(&[0, 0, 0, 1, 0]), 256);
+		assert_eq!(decode_message_size(&[0, 0, 0, 1, 1]), 257);
+		assert_eq!(decode_message_size(&[1, 1, 1, 1, 1]), 4311810305);
+		assert_eq!(decode_message_size(&[1, 2, 3, 4, 5]), 4328719365);
+		assert_eq!(decode_message_size(&[11, 7, 5, 3, 2]), 47362409218);
 		assert_eq!(
-			decode_message_size([255, 255, 255, 255, 255]),
+			decode_message_size(&[255, 255, 255, 255, 255]),
 			1099511627775
 		);
 	}
@@ -113,22 +113,59 @@ mod tests {
 			.start_default_host(0)
 			.unwrap();
 
+		sleep!();
+
 		println!("Address: {}", server.get_addr().unwrap());
 
 		assert!(server.serving().unwrap());
+		sleep!();
 
 		server.stop().unwrap();
+		sleep!();
 
 		assert!(!server.serving().unwrap());
 	}
 
 	#[test]
-	fn test_all() {
+	fn test_drop() {
+		{
+			let server = Server::new()
+				.on_receive(server_on_receive)
+				.on_connect(server_on_connect)
+				.on_disconnect(server_on_disconnect)
+				.start_default_host(0)
+				.unwrap();
+
+			sleep!();
+
+			let server_addr = server.get_addr().unwrap();
+			println!("Server address: {}", server_addr);
+
+			let client = Client::new()
+				.on_receive(client_on_receive)
+				.on_disconnected(client_on_disconnected)
+				.connect_default_host(server_addr.port())
+				.unwrap();
+
+			sleep!();
+
+			server.send_all("Hello, client #0.".as_bytes()).unwrap();
+			sleep!();
+
+			client.send("Hello, server.".as_bytes()).unwrap();
+			sleep!();
+		}
+
+		sleep!();
+	}
+
+	#[test]
+	fn test_main() {
 		let server = Server::new()
 			.on_receive(server_on_receive)
 			.on_connect(server_on_connect)
 			.on_disconnect(server_on_disconnect)
-			.start("127.0.0.1", 0)
+			.start_default_host(0)
 			.unwrap();
 
 		sleep!();
@@ -139,7 +176,7 @@ mod tests {
 		let client = Client::new()
 			.on_receive(client_on_receive)
 			.on_disconnected(client_on_disconnected)
-			.connect("127.0.0.1", server_addr.port())
+			.connect_default_host(server_addr.port())
 			.unwrap();
 
 		sleep!();
@@ -154,5 +191,6 @@ mod tests {
 		sleep!();
 
 		server.stop().unwrap();
+		sleep!();
 	}
 }

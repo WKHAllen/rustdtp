@@ -59,9 +59,8 @@ where
 		loop {
 			if !self.connected {
 				if !self.shutdown {
-					stream.shutdown(Shutdown::Both)?;
-
-					self.shutdown = true;
+					self.connected = true;
+					self.disconnect(&stream)?;
 				}
 
 				return Ok(());
@@ -70,10 +69,21 @@ where
 			let mut size_buffer = [0; LEN_SIZE];
 			let result = match stream.read(&mut size_buffer) {
 				Ok(size_len) => {
+					if size_len == 0 {
+						match &self.on_disconnected {
+							Some(on_disconnected) => on_disconnected(),
+							None => (),
+						}
+
+						self.disconnect(stream)?;
+
+						return Ok(());
+					}
+
 					assert_eq!(size_len, LEN_SIZE);
 
-					let msg_size = decode_message_size(size_buffer);
-					let mut buffer = Vec::with_capacity(msg_size);
+					let msg_size = decode_message_size(&size_buffer);
+					let mut buffer = vec![0; msg_size];
 
 					match stream.read(&mut buffer) {
 						Ok(len) => {
@@ -97,7 +107,7 @@ where
 							}
 						}
 						Err(e) => {
-							Err(e) // TODO: check for disconnected
+							Err(e)
 						}
 					}
 				}
@@ -109,7 +119,7 @@ where
 					}
 				}
 				Err(e) => {
-					Err(e) // TODO: check for disconnected
+					Err(e)
 				}
 			};
 
@@ -159,7 +169,9 @@ where
 		buffer.extend_from_slice(&size);
 		buffer.extend_from_slice(data);
 
-		stream.write(&buffer[..])?;
+		assert_eq!(buffer.len(), data.len() + LEN_SIZE);
+
+		stream.write(&buffer)?;
 
 		Ok(())
 	}
@@ -192,9 +204,9 @@ where
 					.cmd_return_sender
 					.send(ClientCommandReturn::Disconnect(ret))
 			}
-			ClientCommand::Send { data } => self
-				.cmd_return_sender
-				.send(ClientCommandReturn::Send(self.send(stream, &data))),
+			ClientCommand::Send { data } => self.cmd_return_sender.send(ClientCommandReturn::Send(
+				self.send(stream, data.as_slice()),
+			)),
 			ClientCommand::Connected => self
 				.cmd_return_sender
 				.send(ClientCommandReturn::Connected(self.connected())),
@@ -221,8 +233,10 @@ where
 	D: Fn() + Clone + Send + 'static,
 {
 	fn drop(&mut self) {
-		if self.connected {
-			self.connected = false;
+		self.connected = false;
+
+		while !self.shutdown {
+			thread::sleep(Duration::from_millis(10));
 		}
 	}
 }
@@ -383,7 +397,7 @@ where
 	}
 
 	pub fn connect_default_host(&mut self, port: u16) -> io::Result<ClientHandle> {
-		self.connect(DEFAULT_HOST, port)
+		self.connect(DEFAULT_CLIENT_HOST, port)
 	}
 
 	pub fn connect_default_port(&mut self, host: &str) -> io::Result<ClientHandle> {
@@ -391,6 +405,6 @@ where
 	}
 
 	pub fn connect_default(&mut self) -> io::Result<ClientHandle> {
-		self.connect(DEFAULT_HOST, DEFAULT_PORT)
+		self.connect(DEFAULT_CLIENT_HOST, DEFAULT_PORT)
 	}
 }
