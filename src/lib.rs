@@ -11,8 +11,9 @@ pub use server::Server;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryInto;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use util::*;
 
     const SLEEP_TIME: u64 = 100;
@@ -115,7 +116,7 @@ mod tests {
 
         sleep!();
 
-        println!("Address: {}", server.get_addr().unwrap());
+        println!("Server address: {}", server.get_addr().unwrap());
 
         assert!(server.serving().unwrap());
         sleep!();
@@ -160,7 +161,46 @@ mod tests {
     }
 
     #[test]
-    fn test_main() {
+    fn test_addresses() {
+        let server = Server::new()
+            .on_receive(server_on_receive)
+            .on_connect(server_on_connect)
+            .on_disconnect(server_on_disconnect)
+            .start_default_host(0)
+            .unwrap();
+
+        sleep!();
+
+        let server_addr = server.get_addr().unwrap();
+        println!("Server address: {}", server_addr);
+
+        let client = Client::new()
+            .on_receive(client_on_receive)
+            .on_disconnected(client_on_disconnected)
+            .connect_default_host(server_addr.port())
+            .unwrap();
+
+        sleep!();
+
+        assert_eq!(
+            server.get_addr().unwrap().port(),
+            client.get_server_addr().unwrap().port()
+        );
+        assert_eq!(
+            client.get_addr().unwrap().port(),
+            server.get_client_addr(0).unwrap().port()
+        );
+        sleep!();
+
+        client.disconnect().unwrap();
+        sleep!();
+
+        server.stop().unwrap();
+        sleep!();
+    }
+
+    #[test]
+    fn test_send() {
         let server = Server::new()
             .on_receive(server_on_receive)
             .on_connect(server_on_connect)
@@ -192,5 +232,131 @@ mod tests {
 
         server.stop().unwrap();
         sleep!();
+    }
+
+    #[test]
+    fn test_large_send() {
+        let large_msg_len = (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            % 32768)
+            .try_into()
+            .unwrap();
+        let large_msg: Vec<u8> = vec![0u8; large_msg_len]
+            .iter()
+            .map(|_| {
+                (SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+                    % 256)
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let large_msg_server_copy = large_msg.clone();
+        let large_msg_client_copy = large_msg.clone();
+
+        println!(
+            "Created large random message: {} bytes, [{}, {}, {}, {}, ...]",
+            large_msg_len, large_msg[0], large_msg[1], large_msg[2], large_msg[3]
+        );
+
+        let server = Server::new()
+            .on_receive(move |client_id, data| {
+                println!(
+                    "Received large random message from client #{}: {} bytes, [{}, {}, {}, {}, ...]",
+                    client_id,
+                    data.len(),
+                    data[0],
+                    data[1],
+                    data[2],
+                    data[3]
+                );
+                assert_eq!(client_id, 0);
+                assert_eq!(data.len(), large_msg_len);
+                assert_eq!(data, large_msg_server_copy.as_slice());
+            })
+            .on_connect(server_on_connect)
+            .on_disconnect(server_on_disconnect)
+            .start_default_host(0)
+            .unwrap();
+
+        sleep!();
+
+        let server_addr = server.get_addr().unwrap();
+        println!("Server address: {}", server_addr);
+
+        let client = Client::new()
+            .on_receive(move |data| {
+                println!(
+                    "Received large random message from server: {} bytes, [{}, {}, {}, {}, ...]",
+                    data.len(),
+                    data[0],
+                    data[1],
+                    data[2],
+                    data[3]
+                );
+                assert_eq!(data.len(), large_msg_len);
+                assert_eq!(data, large_msg_client_copy.as_slice());
+            })
+            .on_disconnected(client_on_disconnected)
+            .connect_default_host(server_addr.port())
+            .unwrap();
+
+        sleep!();
+
+        server.send(&large_msg.as_slice(), 0).unwrap();
+        sleep!();
+
+        client.send(&large_msg.as_slice()).unwrap();
+        sleep!();
+
+        client.disconnect().unwrap();
+        sleep!();
+
+        server.stop().unwrap();
+        sleep!();
+    }
+
+    #[test]
+    fn test_serving_connected() {
+        let server = Server::new()
+            .on_receive(server_on_receive)
+            .on_connect(server_on_connect)
+            .on_disconnect(server_on_disconnect)
+            .start_default_host(0)
+            .unwrap();
+
+        sleep!();
+
+        let server_addr = server.get_addr().unwrap();
+        println!("Server address: {}", server_addr);
+
+        assert!(server.serving().unwrap());
+
+        let client = Client::new()
+            .on_receive(client_on_receive)
+            .on_disconnected(client_on_disconnected)
+            .connect_default_host(server_addr.port())
+            .unwrap();
+
+        sleep!();
+
+        assert!(server.serving().unwrap());
+        assert!(client.connected().unwrap());
+
+        client.disconnect().unwrap();
+        sleep!();
+
+        assert!(server.serving().unwrap());
+        assert!(!client.connected().unwrap());
+
+        server.stop().unwrap();
+        sleep!();
+
+        assert!(!server.serving().unwrap());
+        assert!(!client.connected().unwrap());
     }
 }
