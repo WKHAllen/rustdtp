@@ -27,6 +27,7 @@ enum ServerCommandReturn {
     RemoveClient(io::Result<()>),
 }
 
+#[derive(Debug)]
 pub struct Server<R, C, D>
 where
     R: Fn(usize, &[u8]) + Clone + Send + 'static,
@@ -357,6 +358,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct ServerHandle {
     cmd_sender: mpsc::Sender<ServerCommand>,
     cmd_return_receiver: mpsc::Receiver<ServerCommandReturn>,
@@ -495,6 +497,7 @@ impl Drop for ServerHandle {
     }
 }
 
+#[derive(Debug)]
 pub struct ServerBuilder<R, C, D>
 where
     R: Fn(usize, &[u8]) + Clone + Send + 'static,

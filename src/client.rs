@@ -22,6 +22,7 @@ enum ClientCommandReturn {
     GetServerAddr(io::Result<SocketAddr>),
 }
 
+#[derive(Debug)]
 pub struct Client<R, D>
 where
     R: Fn(&[u8]) + Clone + Send + 'static,
@@ -239,6 +240,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct ClientHandle {
     cmd_sender: mpsc::Sender<ClientCommand>,
     cmd_return_receiver: mpsc::Receiver<ClientCommandReturn>,
@@ -336,6 +338,7 @@ impl Drop for ClientHandle {
     }
 }
 
+#[derive(Debug)]
 pub struct ClientBuilder<R, D>
 where
     R: Fn(&[u8]) + Clone + Send + 'static,
