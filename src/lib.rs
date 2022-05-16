@@ -106,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn test_server() {
+    fn test_server_serve() {
         let server = Server::new()
             .on_receive(server_on_receive)
             .on_connect(server_on_connect)
@@ -352,6 +352,71 @@ mod tests {
 
         assert!(server.serving().unwrap());
         assert!(!client.connected().unwrap());
+
+        server.stop().unwrap();
+        sleep!();
+
+        assert!(!server.serving().unwrap());
+        assert!(!client.connected().unwrap());
+    }
+
+    #[test]
+    fn test_remove_client() {
+        let server = Server::new()
+            .on_receive(server_on_receive)
+            .on_connect(server_on_connect)
+            .on_disconnect(server_on_disconnect)
+            .start_default_host(0)
+            .unwrap();
+
+        sleep!();
+
+        let server_addr = server.get_addr().unwrap();
+        println!("Server address: {}", server_addr);
+
+        let client = Client::new()
+            .on_receive(client_on_receive)
+            .on_disconnected(client_on_disconnected)
+            .connect_default_host(server_addr.port())
+            .unwrap();
+
+        sleep!();
+
+        assert!(client.connected().unwrap());
+
+        server.remove_client(0).unwrap();
+        sleep!();
+
+        assert!(!client.connected().unwrap());
+
+        server.stop().unwrap();
+        sleep!();
+    }
+
+    #[test]
+    fn test_stop_server_while_client_connected() {
+        let server = Server::new()
+            .on_receive(server_on_receive)
+            .on_connect(server_on_connect)
+            .on_disconnect(server_on_disconnect)
+            .start_default_host(0)
+            .unwrap();
+
+        sleep!();
+
+        let server_addr = server.get_addr().unwrap();
+        println!("Server address: {}", server_addr);
+
+        let client = Client::new()
+            .on_receive(client_on_receive)
+            .on_disconnected(client_on_disconnected)
+            .connect_default_host(server_addr.port())
+            .unwrap();
+
+        sleep!();
+
+        assert!(server.serving().unwrap());
+        assert!(client.connected().unwrap());
 
         server.stop().unwrap();
         sleep!();
