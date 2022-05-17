@@ -47,7 +47,7 @@ where
 
     pub fn connect(&mut self, stream: &mut TcpStream) -> io::Result<()> {
         if self.connected {
-            return Err(io::Error::new(io::ErrorKind::Other, "Already connected"));
+            return generic_error("Already connected");
         }
 
         self.connected = true;
@@ -104,7 +104,7 @@ where
                             if self.connected {
                                 Ok(())
                             } else {
-                                Err(io::Error::new(io::ErrorKind::Other, "Done"))
+                                generic_error("Done")
                             }
                         }
                         Err(e) => Err(e),
@@ -114,7 +114,7 @@ where
                     if self.connected {
                         Ok(())
                     } else {
-                        Err(io::Error::new(io::ErrorKind::Other, "Done"))
+                        generic_error("Done")
                     }
                 }
                 Err(e) => Err(e),
@@ -144,7 +144,7 @@ where
 
     pub fn disconnect(&mut self, stream: &TcpStream) -> io::Result<()> {
         if !self.connected {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+            return generic_error("Not connected");
         }
 
         stream.shutdown(Shutdown::Both)?;
@@ -157,7 +157,7 @@ where
 
     pub fn send(&self, stream: &mut TcpStream, data: &[u8]) -> io::Result<()> {
         if !self.connected {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+            return generic_error("Not connected");
         }
 
         // TODO: encrypt data
@@ -179,7 +179,7 @@ where
 
     pub fn get_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+            return generic_error("Not connected");
         }
 
         stream.local_addr()
@@ -187,7 +187,7 @@ where
 
     pub fn get_server_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not connected"));
+            return generic_error("Not connected");
         }
 
         stream.peer_addr()
@@ -221,7 +221,7 @@ where
             }
         } {
             Ok(()) => Ok(()),
-            Err(err) => Err(io::Error::new(io::ErrorKind::Other, err)),
+            Err(err) => generic_error(err),
         }
     }
 }
@@ -252,14 +252,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Disconnect(value) => value,
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Incorrect return value from command channel",
-                    )),
+                    _ => generic_error("Incorrect return value from command channel"),
                 },
-                Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+                Err(_) => generic_error("Not connected"),
             },
-            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+            Err(_) => generic_error("Not connected"),
         }
     }
 
@@ -270,14 +267,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Send(value) => value,
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Incorrect return value from command channel",
-                    )),
+                    _ => generic_error("Incorrect return value from command channel"),
                 },
-                Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+                Err(_) => generic_error("Not connected"),
             },
-            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+            Err(_) => generic_error("Not connected"),
         }
     }
 
@@ -286,10 +280,7 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Connected(value) => Ok(value),
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Incorrect return value from command channel",
-                    )),
+                    _ => generic_error("Incorrect return value from command channel"),
                 },
                 Err(_) => Ok(false),
             },
@@ -302,14 +293,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::GetAddr(value) => value,
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Incorrect return value from command channel",
-                    )),
+                    _ => generic_error("Incorrect return value from command channel"),
                 },
-                Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+                Err(_) => generic_error("Not connected"),
             },
-            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+            Err(_) => generic_error("Not connected"),
         }
     }
 
@@ -318,14 +306,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::GetServerAddr(value) => value,
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Incorrect return value from command channel",
-                    )),
+                    _ => generic_error("Incorrect return value from command channel"),
                 },
-                Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+                Err(_) => generic_error("Not connected"),
             },
-            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "Not connected")),
+            Err(_) => generic_error("Not connected"),
         }
     }
 }

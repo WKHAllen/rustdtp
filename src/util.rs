@@ -1,4 +1,6 @@
 use std::convert::TryFrom;
+use std::error;
+use std::io;
 
 pub const LEN_SIZE: usize = 5;
 
@@ -26,4 +28,11 @@ pub fn decode_message_size(encoded_size: &[u8; LEN_SIZE]) -> usize {
     }
 
     size
+}
+
+pub fn generic_error<T, E>(err: E) -> io::Result<T>
+where
+    E: Into<Box<dyn error::Error + Send + Sync>>,
+{
+    Err(io::Error::new(io::ErrorKind::Other, err))
 }
