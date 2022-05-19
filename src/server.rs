@@ -57,7 +57,7 @@ where
 
     pub fn start(&mut self, listener: TcpListener) -> io::Result<()> {
         if self.serving {
-            return generic_error("Already serving");
+            return generic_error(*Error::AlreadyServing);
         }
 
         self.serving = true;
@@ -96,7 +96,7 @@ where
                     if self.serving {
                         Ok(())
                     } else {
-                        generic_error("Done serving")
+                        generic_error(*Error::ServerClosed)
                     }
                 }
                 Err(e) => Err(e),
@@ -172,7 +172,7 @@ where
                                 if self.serving {
                                     Ok(())
                                 } else {
-                                    generic_error("Done serving")
+                                    generic_error(*Error::ServerClosed)
                                 }
                             }
                             Err(e) => Err(e),
@@ -182,7 +182,7 @@ where
                         if self.serving {
                             Ok(())
                         } else {
-                            generic_error("Done serving")
+                            generic_error(*Error::ServerClosed)
                         }
                     }
                     Err(e) => Err(e),
@@ -200,7 +200,7 @@ where
 
                 Ok(true)
             }
-            None => generic_error("Invalid client ID"),
+            None => generic_error(*Error::InvalidClientID),
         }
     }
 
@@ -218,7 +218,7 @@ where
 
     pub fn stop(&mut self) -> io::Result<()> {
         if !self.serving {
-            return generic_error("Not serving");
+            return generic_error(*Error::NotServing);
         }
 
         self.serving = false;
@@ -236,7 +236,7 @@ where
 
     pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
         if !self.serving {
-            return generic_error("Not serving");
+            return generic_error(*Error::NotServing);
         }
 
         match self.clients.get(&client_id) {
@@ -252,7 +252,7 @@ where
                 client.write(&buffer)?;
                 Ok(())
             }
-            None => generic_error("Invalid client ID"),
+            None => generic_error(*Error::InvalidClientID),
         }
     }
 
@@ -270,7 +270,7 @@ where
 
     pub fn get_addr(&self, listener: &TcpListener) -> io::Result<SocketAddr> {
         if !self.serving {
-            return generic_error("Not serving");
+            return generic_error(*Error::NotServing);
         }
 
         listener.local_addr()
@@ -278,18 +278,18 @@ where
 
     pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
         if !self.serving {
-            return generic_error("Not serving");
+            return generic_error(*Error::NotServing);
         }
 
         match self.clients.get(&client_id) {
             Some(client) => client.peer_addr(),
-            None => generic_error("Invalid client ID"),
+            None => generic_error(*Error::InvalidClientID),
         }
     }
 
     pub fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
         if !self.serving {
-            return generic_error("Not serving");
+            return generic_error(*Error::NotServing);
         }
 
         match self.clients.get(&client_id) {
@@ -299,7 +299,7 @@ where
                 // TODO: remove client's key
                 Ok(())
             }
-            None => generic_error("Invalid client ID"),
+            None => generic_error(*Error::InvalidClientID),
         }
     }
 
@@ -370,11 +370,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::Stop(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 
@@ -386,11 +386,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::Send(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 
@@ -401,11 +401,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::SendAll(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 
@@ -414,7 +414,7 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::Serving(value) => Ok(value),
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
                 Err(_) => Ok(false),
             },
@@ -427,11 +427,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::GetAddr(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 
@@ -443,11 +443,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::GetClientAddr(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 
@@ -459,11 +459,11 @@ impl ServerHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ServerCommandReturn::RemoveClient(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not serving"),
+                Err(_) => generic_error(*Error::NotServing),
             },
-            Err(_) => generic_error("Not serving"),
+            Err(_) => generic_error(*Error::NotServing),
         }
     }
 }

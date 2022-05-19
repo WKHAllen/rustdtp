@@ -1,12 +1,41 @@
 use std::convert::TryFrom;
 use std::error;
 use std::io;
+use std::ops::Deref;
 
 pub const LEN_SIZE: usize = 5;
 
 pub const DEFAULT_SERVER_HOST: &str = "0.0.0.0";
 pub const DEFAULT_CLIENT_HOST: &str = "127.0.0.1";
 pub const DEFAULT_PORT: u16 = 29275;
+
+pub enum Error {
+    NotServing,
+    AlreadyServing,
+    ServerClosed,
+    NotConnected,
+    AlreadyConnected,
+    ClientDisconnected,
+    InvalidClientID,
+    ChannelWrongResponse,
+}
+
+impl Deref for Error {
+    type Target = &'static str;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::NotServing => &"Not serving clients",
+            Self::AlreadyServing => &"Already serving clients",
+            Self::ServerClosed => &"Server closed",
+            Self::NotConnected => &"Not connected to a server",
+            Self::AlreadyConnected => &"Already connected to a server",
+            Self::ClientDisconnected => &"Client disconnected",
+            Self::InvalidClientID => &"Invalid client ID",
+            Self::ChannelWrongResponse => &"Incorrect return value from command channel",
+        }
+    }
+}
 
 pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
     let mut encoded_size = [0u8; LEN_SIZE];

@@ -47,7 +47,7 @@ where
 
     pub fn connect(&mut self, stream: &mut TcpStream) -> io::Result<()> {
         if self.connected {
-            return generic_error("Already connected");
+            return generic_error(*Error::AlreadyConnected);
         }
 
         self.connected = true;
@@ -104,7 +104,7 @@ where
                             if self.connected {
                                 Ok(())
                             } else {
-                                generic_error("Done")
+                                generic_error(*Error::ClientDisconnected)
                             }
                         }
                         Err(e) => Err(e),
@@ -114,7 +114,7 @@ where
                     if self.connected {
                         Ok(())
                     } else {
-                        generic_error("Done")
+                        generic_error(*Error::ClientDisconnected)
                     }
                 }
                 Err(e) => Err(e),
@@ -144,7 +144,7 @@ where
 
     pub fn disconnect(&mut self, stream: &TcpStream) -> io::Result<()> {
         if !self.connected {
-            return generic_error("Not connected");
+            return generic_error(*Error::NotConnected);
         }
 
         stream.shutdown(Shutdown::Both)?;
@@ -157,7 +157,7 @@ where
 
     pub fn send(&self, stream: &mut TcpStream, data: &[u8]) -> io::Result<()> {
         if !self.connected {
-            return generic_error("Not connected");
+            return generic_error(*Error::NotConnected);
         }
 
         // TODO: encrypt data
@@ -179,7 +179,7 @@ where
 
     pub fn get_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
-            return generic_error("Not connected");
+            return generic_error(*Error::NotConnected);
         }
 
         stream.local_addr()
@@ -187,7 +187,7 @@ where
 
     pub fn get_server_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
-            return generic_error("Not connected");
+            return generic_error(*Error::NotConnected);
         }
 
         stream.peer_addr()
@@ -252,11 +252,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Disconnect(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not connected"),
+                Err(_) => generic_error(*Error::NotConnected),
             },
-            Err(_) => generic_error("Not connected"),
+            Err(_) => generic_error(*Error::NotConnected),
         }
     }
 
@@ -267,11 +267,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Send(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not connected"),
+                Err(_) => generic_error(*Error::NotConnected),
             },
-            Err(_) => generic_error("Not connected"),
+            Err(_) => generic_error(*Error::NotConnected),
         }
     }
 
@@ -280,7 +280,7 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::Connected(value) => Ok(value),
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
                 Err(_) => Ok(false),
             },
@@ -293,11 +293,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::GetAddr(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not connected"),
+                Err(_) => generic_error(*Error::NotConnected),
             },
-            Err(_) => generic_error("Not connected"),
+            Err(_) => generic_error(*Error::NotConnected),
         }
     }
 
@@ -306,11 +306,11 @@ impl ClientHandle {
             Ok(()) => match self.cmd_return_receiver.recv() {
                 Ok(received) => match received {
                     ClientCommandReturn::GetServerAddr(value) => value,
-                    _ => generic_error("Incorrect return value from command channel"),
+                    _ => generic_error(*Error::ChannelWrongResponse),
                 },
-                Err(_) => generic_error("Not connected"),
+                Err(_) => generic_error(*Error::NotConnected),
             },
-            Err(_) => generic_error("Not connected"),
+            Err(_) => generic_error(*Error::NotConnected),
         }
     }
 }
