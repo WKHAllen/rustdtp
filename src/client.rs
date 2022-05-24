@@ -1,3 +1,5 @@
+//! The client network interface.
+
 use crate::util::*;
 use std::io;
 use std::io::{Read, Write};
@@ -6,6 +8,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+/// A command sent from the client handle to the client.
 enum ClientCommand {
     Disconnect,
     Send { data: Vec<u8> },
@@ -14,6 +17,7 @@ enum ClientCommand {
     GetServerAddr,
 }
 
+/// The return value of a command executed on the client.
 enum ClientCommandReturn {
     Disconnect(io::Result<()>),
     Send(io::Result<()>),
@@ -22,6 +26,21 @@ enum ClientCommandReturn {
     GetServerAddr(io::Result<SocketAddr>),
 }
 
+/// The network client. Event callbacks must be provided via chaining:
+/// 
+/// ```no_run
+/// use rustdtp::Client;
+/// 
+/// let client = Client::new()
+///     .on_receive(|data| {
+///         println!("Message from server: {:?}", data);
+///     })
+///     .on_disconnected(|| {
+///         println!("Disconnected from server");
+///     })
+///     .connect_default()
+///     .unwrap();
+/// ```
 #[derive(Debug)]
 pub struct Client<R, D>
 where
@@ -41,10 +60,16 @@ where
     R: Fn(&[u8]) + Clone + Send + 'static,
     D: Fn() + Clone + Send + 'static,
 {
+    /// Create a new client builder instance.
     pub fn new() -> ClientBuilder<R, D> {
         ClientBuilder::new()
     }
 
+    /// Connect to a server.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result of the error variant if an error occurred while connected to the server.
     pub fn connect(&mut self, stream: &mut TcpStream) -> io::Result<()> {
         if self.connected {
             return generic_error(*Error::AlreadyConnected);
@@ -56,6 +81,11 @@ where
         self.handle(stream)
     }
 
+    /// Perform client operations.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result of the error variant if an error occurred while connected to the server.
     fn handle(&mut self, stream: &mut TcpStream) -> io::Result<()> {
         loop {
             if !self.connected {
@@ -142,6 +172,11 @@ where
         Ok(())
     }
 
+    /// Disconnect from the server.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result of the error variant if an error occurred while disconnecting from the server.
     pub fn disconnect(&mut self, stream: &TcpStream) -> io::Result<()> {
         if !self.connected {
             return generic_error(*Error::NotConnected);
@@ -155,6 +190,12 @@ where
         Ok(())
     }
 
+    /// Send data to the server.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// `data`: the data to send.
+    /// 
+    /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send(&self, stream: &mut TcpStream, data: &[u8]) -> io::Result<()> {
         if !self.connected {
             return generic_error(*Error::NotConnected);
@@ -173,10 +214,18 @@ where
         Ok(())
     }
 
+    /// Check if the client is connected to a server.
+    /// 
+    /// Returns a boolean value representing whether the client is connected to a server.
     pub fn connected(&self) -> bool {
         self.connected
     }
 
+    /// Get the address the client is connected on.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result containing the address the client is connected on, or the error variant if the client is not connected.
     pub fn get_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
             return generic_error(*Error::NotConnected);
@@ -185,6 +234,11 @@ where
         stream.local_addr()
     }
 
+    /// Get the address of the server.
+    /// 
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result containing the address of the server, or the error variant if the client is not connected.
     pub fn get_server_addr(&self, stream: &TcpStream) -> io::Result<SocketAddr> {
         if !self.connected {
             return generic_error(*Error::NotConnected);
@@ -193,6 +247,12 @@ where
         stream.peer_addr()
     }
 
+    /// Execute a command from the client handle.
+    /// 
+    /// `command`: the command to execute.
+    /// `stream`: the client's TCP stream.
+    /// 
+    /// Returns a result of the error variant if an error occurred while executing the command.
     fn execute_command(
         &mut self,
         command: ClientCommand,
@@ -231,6 +291,7 @@ where
     R: Fn(&[u8]) + Clone + Send + 'static,
     D: Fn() + Clone + Send + 'static,
 {
+    /// Disconnect the client from the server and wait for it to fully shut down before dropping it.
     fn drop(&mut self) {
         self.connected = false;
 
@@ -240,6 +301,7 @@ where
     }
 }
 
+/// A handle to a running client.
 #[derive(Debug)]
 pub struct ClientHandle {
     cmd_sender: mpsc::Sender<ClientCommand>,
@@ -247,6 +309,9 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
+    /// Disconnect from the server.
+    /// 
+    /// Returns a result of the error variant if an error occurred while disconnecting from the server.
     pub fn disconnect(&self) -> io::Result<()> {
         match self.cmd_sender.send(ClientCommand::Disconnect) {
             Ok(()) => match self.cmd_return_receiver.recv() {
@@ -260,6 +325,11 @@ impl ClientHandle {
         }
     }
 
+    /// Send data to the server.
+    /// 
+    /// `data`: the data to send.
+    /// 
+    /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send(&self, data: &[u8]) -> io::Result<()> {
         match self.cmd_sender.send(ClientCommand::Send {
             data: data.to_vec(),
@@ -275,6 +345,9 @@ impl ClientHandle {
         }
     }
 
+    /// Check if the client is connected to a server.
+    /// 
+    /// Returns a result containing a boolean value representing whether the client is connected to a server, or the error variant if a channel error occurred.
     pub fn connected(&self) -> io::Result<bool> {
         match self.cmd_sender.send(ClientCommand::Connected) {
             Ok(()) => match self.cmd_return_receiver.recv() {
@@ -288,6 +361,9 @@ impl ClientHandle {
         }
     }
 
+    /// Get the address the client is connected on.
+    /// 
+    /// Returns a result containing the address the client is connected on, or the error variant if the client is not connected.
     pub fn get_addr(&self) -> io::Result<SocketAddr> {
         match self.cmd_sender.send(ClientCommand::GetAddr) {
             Ok(()) => match self.cmd_return_receiver.recv() {
@@ -301,6 +377,9 @@ impl ClientHandle {
         }
     }
 
+    /// Get the address of the server.
+    /// 
+    /// Returns a result containing the address of the server, or the error variant if the client is not connected.
     pub fn get_server_addr(&self) -> io::Result<SocketAddr> {
         match self.cmd_sender.send(ClientCommand::GetServerAddr) {
             Ok(()) => match self.cmd_return_receiver.recv() {
@@ -316,6 +395,7 @@ impl ClientHandle {
 }
 
 impl Drop for ClientHandle {
+    /// Disconnect the client from the server and wait for it to fully shut down before dropping the handle to it.
     fn drop(&mut self) {
         if self.connected().unwrap() {
             self.disconnect().unwrap();
@@ -323,6 +403,7 @@ impl Drop for ClientHandle {
     }
 }
 
+/// A client builder. The event callback methods must all be chained before the client can be built. The `connect` methods build the client and connect it to a server.
 #[derive(Debug)]
 pub struct ClientBuilder<R, D>
 where
@@ -338,6 +419,7 @@ where
     R: Fn(&[u8]) + Clone + Send + 'static,
     D: Fn() + Clone + Send + 'static,
 {
+    /// Create a new client builder instance.
     pub fn new() -> Self {
         Self {
             on_receive: None,
@@ -345,16 +427,28 @@ where
         }
     }
 
+    /// Register the receive event callback.
+    /// 
+    /// `on_receive`: called when the client receives data from the server.
     pub fn on_receive(&mut self, on_receive: R) -> &mut Self {
         self.on_receive = Some(on_receive);
         self
     }
 
+    /// Register the disconnected event callback.
+    /// 
+    /// `on_disconnected`: called when a client has been disconnected from the server.
     pub fn on_disconnected(&mut self, on_disconnected: D) -> &mut Self {
         self.on_disconnected = Some(on_disconnected);
         self
     }
 
+    /// Build the client and connect to a server.
+    /// 
+    /// `host`: the host address of the server to connect to.
+    /// `port`: the port of the server to connect to.
+    /// 
+    /// Returns a result containing a handle to the client, or the error variant if an error occurred while connecting to the server.
     pub fn connect(&mut self, host: &str, port: u16) -> io::Result<ClientHandle> {
         let (cmd_sender, cmd_receiver) = mpsc::channel();
         let (cmd_return_sender, cmd_return_receiver) = mpsc::channel();
@@ -382,14 +476,27 @@ where
         })
     }
 
+    /// Build the client and connect to a server, defaulting to host "127.0.0.1".
+    /// 
+    /// `port`: the port of the server to connect to.
+    /// 
+    /// Returns a result containing a handle to the client, or the error variant if an error occurred while connecting to the server.
     pub fn connect_default_host(&mut self, port: u16) -> io::Result<ClientHandle> {
         self.connect(DEFAULT_CLIENT_HOST, port)
     }
 
+    /// Build the client and connect to a server, defaulting to port 29275.
+    /// 
+    /// `host`: the host address of the server to connect to.
+    /// 
+    /// Returns a result containing a handle to the client, or the error variant if an error occurred while connecting to the server.
     pub fn connect_default_port(&mut self, host: &str) -> io::Result<ClientHandle> {
         self.connect(host, DEFAULT_PORT)
     }
 
+    /// Build the client and connect to a server, defaulting to host "127.0.0.1" and port 29275.
+    /// 
+    /// Returns a result containing a handle to the client, or the error variant if an error occurred while connecting to the server.
     pub fn connect_default(&mut self) -> io::Result<ClientHandle> {
         self.connect(DEFAULT_CLIENT_HOST, DEFAULT_PORT)
     }
