@@ -3,9 +3,10 @@ name = "rustdtp"
 version = "0.1.0"
 authors = ["WKHAllen <wkhallen@gmail.com>"]
 license = "MIT"
-description = "A cross platform networking library written in Rust."
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Cross-platform networking interfaces for Rust."
+repository = "https://github.com/WKHAllen/rustdtp"
+keywords = ["socket", "networking"]
+include = ["src/**/*", "LICENSE", "README.md"]
+edition = "2021"
 
 [dependencies]
