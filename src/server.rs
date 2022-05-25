@@ -32,10 +32,10 @@ enum ServerCommandReturn {
 }
 
 /// The network server. Event callbacks must be provided via chaining:
-/// 
+///
 /// ```no_run
 /// use rustdtp::Server;
-/// 
+///
 /// let server = Server::new()
 ///     .on_receive(|client_id, data| {
 ///         println!("Message from client #{}: {:?}", client_id, data);
@@ -79,9 +79,9 @@ where
     }
 
     /// Start a server.
-    /// 
+    ///
     /// `listener`: the server's TCP listener.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while serving.
     pub fn start(&mut self, listener: TcpListener) -> io::Result<()> {
         if self.serving {
@@ -94,9 +94,9 @@ where
     }
 
     /// Perform server operations.
-    /// 
+    ///
     /// `listener`: the server's TCP listener.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while serving.
     fn serve(&mut self, listener: TcpListener) -> io::Result<()> {
         for stream in listener.incoming() {
@@ -160,9 +160,9 @@ where
     }
 
     /// Serve a connected client.
-    /// 
+    ///
     /// `client_id`: the ID of the client.
-    /// 
+    ///
     /// Returns a result containing a boolean representing whether the client is still connected, or the error variant if a network error occurred.
     fn serve_client(&self, client_id: usize) -> io::Result<bool> {
         match self.clients.get(&client_id) {
@@ -236,7 +236,7 @@ where
     }
 
     /// Serve all connected clients.
-    /// 
+    ///
     /// Returns a result containing a list of IDs of clients to remove, or the error variant if an error occurred while serving a client.
     fn serve_clients(&self) -> io::Result<Vec<usize>> {
         let mut clients_to_remove = vec![];
@@ -251,7 +251,7 @@ where
     }
 
     /// Stop the server, disconnect all clients, and shut down all network connections.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while disconnecting clients.
     pub fn stop(&mut self) -> io::Result<()> {
         if !self.serving {
@@ -272,10 +272,10 @@ where
     }
 
     /// Send data to a client.
-    /// 
+    ///
     /// `data`: the data to send.
     /// `client_id`: the ID of the client to send the data to.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
         if !self.serving {
@@ -299,9 +299,9 @@ where
     }
 
     /// Send data to all clients.
-    /// 
+    ///
     /// `data`: the data to send.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send_all(&self, data: &[u8]) -> io::Result<()> {
         for (client_id, _) in &self.clients {
@@ -312,16 +312,16 @@ where
     }
 
     /// Check if the server is serving.
-    /// 
+    ///
     /// Returns a boolean value representing whether the server is serving.
     pub fn serving(&self) -> bool {
         self.serving
     }
 
     /// Get the address the server is listening on.
-    /// 
+    ///
     /// `listener`: the server's TCP listener.
-    /// 
+    ///
     /// Returns a result containing the address the server is listening on, or the error variant if the server is not serving.
     pub fn get_addr(&self, listener: &TcpListener) -> io::Result<SocketAddr> {
         if !self.serving {
@@ -332,9 +332,9 @@ where
     }
 
     /// Get the address of a connected client.
-    /// 
+    ///
     /// `client_id`: the ID of the client.
-    /// 
+    ///
     /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
     pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
         if !self.serving {
@@ -348,9 +348,9 @@ where
     }
 
     /// Disconnect a client from the server.
-    /// 
+    ///
     /// `client_id`: the ID of the client.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while disconnecting the client.
     pub fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
         if !self.serving {
@@ -368,10 +368,10 @@ where
     }
 
     /// Execute a command from the server handle.
-    /// 
+    ///
     /// `command`: the command to execute.
     /// `listener`: the server's TCP listener.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while executing the command.
     fn execute_command(
         &mut self,
@@ -438,7 +438,7 @@ pub struct ServerHandle {
 
 impl ServerHandle {
     /// Stop the server, disconnect all clients, and shut down all network connections.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while disconnecting clients.
     pub fn stop(&self) -> io::Result<()> {
         match self.cmd_sender.send(ServerCommand::Stop) {
@@ -454,10 +454,10 @@ impl ServerHandle {
     }
 
     /// Send data to a client.
-    /// 
+    ///
     /// `data`: the data to send.
     /// `client_id`: the ID of the client to send the data to.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send(&self, data: &[u8], client_id: usize) -> io::Result<()> {
         match self.cmd_sender.send(ServerCommand::Send {
@@ -476,9 +476,9 @@ impl ServerHandle {
     }
 
     /// Send data to all clients.
-    /// 
+    ///
     /// `data`: the data to send.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while sending data.
     pub fn send_all(&self, data: &[u8]) -> io::Result<()> {
         match self.cmd_sender.send(ServerCommand::SendAll {
@@ -496,7 +496,7 @@ impl ServerHandle {
     }
 
     /// Check if the server is serving.
-    /// 
+    ///
     /// Returns a result containing a boolean value representing whether the server is serving, or the error variant if a channel error occurred.
     pub fn serving(&self) -> io::Result<bool> {
         match self.cmd_sender.send(ServerCommand::Serving) {
@@ -512,7 +512,7 @@ impl ServerHandle {
     }
 
     /// Get the address the server is listening on.
-    /// 
+    ///
     /// Returns a result containing the address the server is listening on, or the error variant if the server is not serving.
     pub fn get_addr(&self) -> io::Result<SocketAddr> {
         match self.cmd_sender.send(ServerCommand::GetAddr) {
@@ -528,9 +528,9 @@ impl ServerHandle {
     }
 
     /// Get the address of a connected client.
-    /// 
+    ///
     /// `client_id`: the ID of the client.
-    /// 
+    ///
     /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
     pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
         match self
@@ -549,9 +549,9 @@ impl ServerHandle {
     }
 
     /// Disconnect a client from the server.
-    /// 
+    ///
     /// `client_id`: the ID of the client.
-    /// 
+    ///
     /// Returns a result of the error variant if an error occurred while disconnecting the client.
     pub fn remove_client(&self, client_id: usize) -> io::Result<()> {
         match self
@@ -608,7 +608,7 @@ where
     }
 
     /// Register the receive event callback.
-    /// 
+    ///
     /// `on_receive`: called when the server receives data from a client.
     pub fn on_receive(&mut self, on_receive: R) -> &mut Self {
         self.on_receive = Some(on_receive);
@@ -616,7 +616,7 @@ where
     }
 
     /// Register the connect event callback.
-    /// 
+    ///
     /// `on_connect`: called when a client has connected.
     pub fn on_connect(&mut self, on_connect: C) -> &mut Self {
         self.on_connect = Some(on_connect);
@@ -624,7 +624,7 @@ where
     }
 
     /// Register the disconnect event callback.
-    /// 
+    ///
     /// `on_disconnect`: called when a client has disconnected.
     pub fn on_disconnect(&mut self, on_disconnect: D) -> &mut Self {
         self.on_disconnect = Some(on_disconnect);
@@ -632,10 +632,10 @@ where
     }
 
     /// Build and start the server.
-    /// 
+    ///
     /// `host`: the host address for the server to listen on.
     /// `port`: the port for the server to listen on.
-    /// 
+    ///
     /// Returns a result containing a handle to the server, or the error variant if an error occurred while starting the server.
     pub fn start(&mut self, host: &'static str, port: u16) -> io::Result<ServerHandle> {
         let (cmd_sender, cmd_receiver) = mpsc::channel();
@@ -668,25 +668,25 @@ where
     }
 
     /// Build and start the server, defaulting to host "0.0.0.0".
-    /// 
+    ///
     /// `port`: the port for the server to listen on.
-    /// 
+    ///
     /// Returns a result containing a handle to the server, or the error variant if an error occurred while starting the server.
     pub fn start_default_host(&mut self, port: u16) -> io::Result<ServerHandle> {
         self.start(DEFAULT_SERVER_HOST, port)
     }
 
     /// Build and start the server, defaulting to port 29275.
-    /// 
+    ///
     /// `host`: the host address for the server to listen on.
-    /// 
+    ///
     /// Returns a result containing a handle to the server, or the error variant if an error occurred while starting the server.
     pub fn start_default_port(&mut self, host: &'static str) -> io::Result<ServerHandle> {
         self.start(host, DEFAULT_PORT)
     }
 
     /// Build and start the server, defaulting to host "0.0.0.0" and port 29275.
-    /// 
+    ///
     /// Returns a result containing a handle to the server, or the error variant if an error occurred while starting the server.
     pub fn start_default(&mut self) -> io::Result<ServerHandle> {
         self.start(DEFAULT_SERVER_HOST, DEFAULT_PORT)
