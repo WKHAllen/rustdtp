@@ -77,7 +77,6 @@ where
 
         self.connected = true;
 
-        self.exchange_keys()?;
         self.handle(stream)
     }
 
@@ -120,7 +119,6 @@ where
                         Ok(len) => {
                             assert_eq!(len, msg_size);
 
-                            // TODO: decrypt data
                             let msg = buffer.as_slice();
 
                             match &self.on_receive {
@@ -167,11 +165,6 @@ where
         }
     }
 
-    fn exchange_keys(&mut self) -> io::Result<()> {
-        // TODO: implement key exchange
-        Ok(())
-    }
-
     /// Disconnect from the server.
     /// 
     /// `stream`: the client's TCP stream.
@@ -201,7 +194,6 @@ where
             return generic_error(*Error::NotConnected);
         }
 
-        // TODO: encrypt data
         let size = encode_message_size(data.len());
         let mut buffer = vec![];
         buffer.extend_from_slice(&size);

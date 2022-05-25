@@ -115,7 +115,6 @@ where
                     self.next_client_id += 1;
                     conn.set_nonblocking(true)?;
 
-                    self.exchange_keys(client_id, &conn)?;
                     self.clients.insert(client_id, conn);
 
                     match &self.on_connect {
@@ -160,11 +159,6 @@ where
         unreachable!();
     }
 
-    fn exchange_keys(&self, _client_id: usize, _client: &TcpStream) -> io::Result<()> {
-        // TODO: implement key exchange
-        Ok(())
-    }
-
     /// Serve a connected client.
     /// 
     /// `client_id`: the ID of the client.
@@ -196,7 +190,6 @@ where
                             Ok(len) => {
                                 assert_eq!(len, msg_size);
 
-                                // TODO: decrypt data
                                 let msg = buffer.as_slice();
 
                                 match &self.on_receive {
@@ -291,7 +284,6 @@ where
 
         match self.clients.get(&client_id) {
             Some(mut client) => {
-                // TODO: encrypt data
                 let size = encode_message_size(data.len());
                 let mut buffer = vec![];
                 buffer.extend_from_slice(&size);
@@ -369,7 +361,6 @@ where
             Some(client) => {
                 client.shutdown(Shutdown::Both)?;
                 self.clients.remove(&client_id);
-                // TODO: remove client's key
                 Ok(())
             }
             None => generic_error(*Error::InvalidClientID),
