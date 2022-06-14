@@ -25,7 +25,7 @@ pub struct CommandChannelSender<S, R> {
 }
 
 impl<S, R> CommandChannelSender<S, R> {
-    pub async fn send(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
+    pub async fn send_command(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
         match self.command_sender.send(command).await {
             Ok(()) => Ok(()),
             Err(e) => Err(CommandChannelError::SendCommandError(e)),
@@ -44,7 +44,7 @@ pub struct CommandChannelReceiver<S, R> {
 }
 
 impl<S, R> CommandChannelReceiver<S, R> {
-    pub async fn recv(&mut self) -> Result<S, CommandChannelError<S>> {
+    pub async fn recv_command(&mut self) -> Result<S, CommandChannelError<S>> {
         let command = match self.command_receiver.recv().await {
             Some(value) => Ok(value),
             None => Err(CommandChannelError::ChannelClosed),
@@ -53,7 +53,10 @@ impl<S, R> CommandChannelReceiver<S, R> {
         Ok(command)
     }
 
-    pub async fn send(&mut self, command_return: R) -> Result<(), CommandChannelError<R>> {
+    pub async fn command_return(
+        &mut self,
+        command_return: R,
+    ) -> Result<(), CommandChannelError<R>> {
         match self.command_return_sender.send(command_return).await {
             Ok(()) => Ok(()),
             Err(e) => Err(CommandChannelError::SendCommandReturnError(e)),

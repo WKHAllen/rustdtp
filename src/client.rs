@@ -4,6 +4,7 @@ use super::command_channel::*;
 use super::util::*;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::io;
+use std::marker::PhantomData;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
@@ -50,7 +51,7 @@ where
     pub async fn disconnect(mut self) -> io::Result<()> {
         let value = self
             .client_command_sender
-            .send(ClientCommand::Disconnect)
+            .send_command(ClientCommand::Disconnect)
             .await?;
         self.client_task_handle.await.unwrap();
         unwrap_enum!(value, ClientCommandReturn::Disconnect)
@@ -59,7 +60,7 @@ where
     pub async fn send(&mut self, data: S) -> io::Result<()> {
         let value = self
             .client_command_sender
-            .send(ClientCommand::Send { data })
+            .send_command(ClientCommand::Send { data })
             .await?;
         unwrap_enum!(value, ClientCommandReturn::Send)
     }
@@ -67,7 +68,7 @@ where
     pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
-            .send(ClientCommand::GetAddr)
+            .send_command(ClientCommand::GetAddr)
             .await?;
         unwrap_enum!(value, ClientCommandReturn::GetAddr)
     }
@@ -75,7 +76,7 @@ where
     pub async fn get_server_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
-            .send(ClientCommand::GetServerAddr)
+            .send_command(ClientCommand::GetServerAddr)
             .await?;
         unwrap_enum!(value, ClientCommandReturn::GetServerAddr)
     }
@@ -86,8 +87,8 @@ where
     S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
-    phantom_send: std::marker::PhantomData<S>,
-    phantom_receive: std::marker::PhantomData<R>,
+    phantom_send: PhantomData<S>,
+    phantom_receive: PhantomData<R>,
 }
 
 impl<S, R> Client<S, R>

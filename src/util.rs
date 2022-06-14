@@ -10,21 +10,6 @@ pub const LEN_SIZE: usize = 5;
 /// The size of a channel buffer.
 pub const CHANNEL_BUFFER_SIZE: usize = 100;
 
-/// A crate-specific error.
-pub enum Error {
-    InvalidClientID,
-    ChannelWrongResponse,
-}
-
-impl Error {
-    pub fn message(&self) -> &'static str {
-        match self {
-            Self::InvalidClientID => "Invalid client ID",
-            Self::ChannelWrongResponse => "Incorrect return value from command channel",
-        }
-    }
-}
-
 /// Generate a generic IO error.
 ///
 /// `err`: the underlying error.
