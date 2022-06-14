@@ -1,9 +1,22 @@
+use std::io;
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
 pub enum CommandChannelError<T> {
     SendCommandError(SendError<T>),
     SendCommandReturnError(SendError<T>),
     ChannelClosed,
+}
+
+impl<T> CommandChannelError<T> {
+    pub fn message(&self) -> &'static str {
+        "command channel closed"
+    }
+}
+
+impl<T> From<CommandChannelError<T>> for io::Error {
+    fn from(e: CommandChannelError<T>) -> Self {
+        Self::new(io::ErrorKind::Other, e.message())
+    }
 }
 
 pub struct CommandChannelSender<S, R> {

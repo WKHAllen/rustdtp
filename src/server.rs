@@ -68,35 +68,50 @@ impl<S> ServerHandle<S>
 where
     S: Serialize + Send + 'static,
 {
-    pub async fn stop(self) -> io::Result<()> {
-        // TODO: implement
-        todo!();
+    pub async fn stop(mut self) -> io::Result<()> {
+        let value = self.server_command_sender.send(ServerCommand::Stop).await?;
         self.server_task_handle.await.unwrap();
+        unwrap_enum!(value, ServerCommandReturn::Stop)
     }
 
-    pub async fn send(&self, client_id: usize, data: S) -> io::Result<()> {
-        // TODO: implement
-        todo!();
+    pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
+        let value = self
+            .server_command_sender
+            .send(ServerCommand::Send { client_id, data })
+            .await?;
+        unwrap_enum!(value, ServerCommandReturn::Send)
     }
 
-    pub async fn send_all(&self, data: S) -> io::Result<()> {
-        // TODO: implement
-        todo!();
+    pub async fn send_all(&mut self, data: S) -> io::Result<()> {
+        let value = self
+            .server_command_sender
+            .send(ServerCommand::SendAll { data })
+            .await?;
+        unwrap_enum!(value, ServerCommandReturn::SendAll)
     }
 
-    pub async fn get_addr(&self) -> io::Result<SocketAddr> {
-        // TODO: implement
-        todo!();
+    pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
+        let value = self
+            .server_command_sender
+            .send(ServerCommand::GetAddr)
+            .await?;
+        unwrap_enum!(value, ServerCommandReturn::GetAddr)
     }
 
-    pub async fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
-        // TODO: implement
-        todo!();
+    pub async fn get_client_addr(&mut self, client_id: usize) -> io::Result<SocketAddr> {
+        let value = self
+            .server_command_sender
+            .send(ServerCommand::GetClientAddr { client_id })
+            .await?;
+        unwrap_enum!(value, ServerCommandReturn::GetClientAddr)
     }
 
-    pub async fn remove_client(&self, client_id: usize) -> io::Result<()> {
-        // TODO: implement
-        todo!();
+    pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
+        let value = self
+            .server_command_sender
+            .send(ServerCommand::RemoveClient { client_id })
+            .await?;
+        unwrap_enum!(value, ServerCommandReturn::RemoveClient)
     }
 }
 
@@ -134,12 +149,11 @@ where
             > = HashMap::new();
             // Background client task join handles
             let mut client_join_handles = vec![];
+            // ID assigned to the next client
+            let mut next_client_id = 0usize;
 
             // Server listener loop
             loop {
-                // ID assigned to the next client
-                let mut next_client_id = 0usize;
-
                 // Await new clients connecting and commands from the server handle
                 tokio::select! {
                     // Accept a connecting client

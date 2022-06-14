@@ -17,7 +17,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &'static str {
         match self {
             Self::InvalidClientID => "Invalid client ID",
             Self::ChannelWrongResponse => "Incorrect return value from command channel",
@@ -68,3 +68,18 @@ pub fn decode_message_size(encoded_size: &[u8; LEN_SIZE]) -> usize {
 
     size
 }
+
+macro_rules! unwrap_enum {
+    ($enum: expr, $variant: path) => {{
+        if let $variant(x) = $enum {
+            x
+        } else {
+            panic!(
+                "mismatch variant when unwrapping enum {}",
+                stringify!($variant)
+            );
+        }
+    }};
+}
+
+pub(crate) use unwrap_enum;
