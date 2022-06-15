@@ -48,6 +48,7 @@ pub enum ServerClientCommandReturn {
     Remove(io::Result<()>),
 }
 
+#[derive(Debug)]
 pub enum ServerEvent<R>
 where
     R: DeserializeOwned + Send + 'static,

@@ -28,12 +28,13 @@ pub enum ClientCommandReturn {
     GetServerAddr(io::Result<SocketAddr>),
 }
 
+#[derive(Debug)]
 pub enum ClientEvent<R>
 where
     R: DeserializeOwned + Send + 'static,
 {
     Receive { data: R },
-    Disconnected,
+    Disconnect,
 }
 
 pub struct ClientHandle<S>
@@ -107,7 +108,7 @@ where
         // Channels for sending event notifications from the background client task
         let (client_event_sender, client_event_receiver) = channel(CHANNEL_BUFFER_SIZE);
 
-        // Start the background client task, saving the join handle for when the client is disconnected
+        // Start the background client task, saving the join handle for when the client disconnects
         let client_task_handle = tokio::spawn(async move {
             // Wrap client loop in a block to catch all exit scenarios
             let client_exit = {
@@ -259,7 +260,7 @@ where
                 }
 
                 // Send a disconnect event, ignoring send errors
-                if let Err(_e) = client_event_sender.send(ClientEvent::Disconnected).await {}
+                if let Err(_e) = client_event_sender.send(ClientEvent::Disconnect).await {}
 
                 io::Result::Ok(())
             };
