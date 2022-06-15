@@ -55,6 +55,7 @@ where
     Connect { client_id: usize },
     Disconnect { client_id: usize },
     Receive { client_id: usize, data: R },
+    Stop,
 }
 
 pub struct ServerHandle<S>
@@ -357,6 +358,7 @@ where
                                             // its `Result`. This immediately returns with an `Ok` status. The real return
                                             // value is the `Result` returned from the server task join handle.
                                             if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::Stop(Ok(()))).await {}
+
                                             // Break the server loop, the clients will be disconnected before the task ends
                                             break;
                                         },
@@ -496,6 +498,10 @@ where
                 handle.await.unwrap()?;
             }
 
+            // Send a stop event, ignoring send errors
+            if let Err(_e) = server_event_sender.send(ServerEvent::Stop).await {}
+
+            // Return server loop result
             server_exit
         });
 
