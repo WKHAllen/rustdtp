@@ -54,6 +54,7 @@ pub fn decode_message_size(encoded_size: &[u8; LEN_SIZE]) -> usize {
     size
 }
 
+/// Assert that an enum is of the given variant, and unwrap the value within the variant.
 macro_rules! unwrap_enum {
     ($enum: expr, $variant: path) => {{
         if let $variant(x) = $enum {

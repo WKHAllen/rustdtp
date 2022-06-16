@@ -1,6 +1,7 @@
 use std::io;
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
+/// An error associated with a command channel.
 pub enum CommandChannelError<T> {
     SendCommandError(SendError<T>),
     SendCommandReturnError(SendError<T>),
@@ -19,12 +20,23 @@ impl<T> From<CommandChannelError<T>> for io::Error {
     }
 }
 
+/// A command channel sender.
+///
+/// The command channel sender takes two generic parameters:
+///
+/// - `S`: the type representing the command.
+/// - `R`: the type representing the return value from the command.
 pub struct CommandChannelSender<S, R> {
     command_sender: Sender<S>,
     command_return_receiver: Receiver<R>,
 }
 
 impl<S, R> CommandChannelSender<S, R> {
+    /// Send a command to the receiver.
+    ///
+    /// `command`: the command to send.
+    ///
+    /// Returns a result containing the received return value of the command, or the error variant if an error occurred while interacting with the channel.
     pub async fn send_command(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
         match self.command_sender.send(command).await {
             Ok(()) => Ok(()),
@@ -38,12 +50,21 @@ impl<S, R> CommandChannelSender<S, R> {
     }
 }
 
+/// A command channel receiver.
+///
+/// The command channel receiver takes two generic parameters:
+///
+/// - `S`: the type representing the command.
+/// - `R`: the type representing the return value from the command.
 pub struct CommandChannelReceiver<S, R> {
     command_receiver: Receiver<S>,
     command_return_sender: Sender<R>,
 }
 
 impl<S, R> CommandChannelReceiver<S, R> {
+    /// Receive a command from the command channel.
+    ///
+    /// Returns a result containing the received command, or the error variant if an error occurred while interacting with the channel.
     pub async fn recv_command(&mut self) -> Result<S, CommandChannelError<S>> {
         let command = match self.command_receiver.recv().await {
             Some(value) => Ok(value),
@@ -53,6 +74,11 @@ impl<S, R> CommandChannelReceiver<S, R> {
         Ok(command)
     }
 
+    /// Pass the return value of a command through the channel back to the sender.
+    ///
+    /// `command_return`: the return value of the command.
+    ///
+    /// Returns a result of the error variant if an error occurred while interacting with the channel.
     pub async fn command_return(
         &mut self,
         command_return: R,
@@ -64,6 +90,14 @@ impl<S, R> CommandChannelReceiver<S, R> {
     }
 }
 
+/// Create a sender-receiver pair of command channels.
+///
+/// This takes two generic parameters:
+///
+/// - `S`: the type representing the command.
+/// - `R`: the type representing the return value from the command.
+///
+/// The internal channels are buffered to support only a single value. This is because only one command should be processed at a time.
 pub fn command_channel<S, R>() -> (CommandChannelSender<S, R>, CommandChannelReceiver<S, R>) {
     let (command_sender, command_receiver) = channel(1);
     let (command_return_sender, command_return_receiver) = channel(1);

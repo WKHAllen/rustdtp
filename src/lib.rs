@@ -1,8 +1,8 @@
 //! # Rust Data Transfer Protocol
 //!
-//! Cross-platform networking interfaces for Rust.
+//! Asynchronous cross-platform networking interfaces for Rust.
 //!
-//! The two fundamental network objects this library provides are the server and client. When starting a server or connecting via a client, the thread will not block while it performs network operations in the background. Upon instantiation, both the server and client return handles that provide a mechanism for communicating with the background thread, and instructing it to provide status information or halt network operations. If any network object goes out of scope before background operations are terminated, the operations will be cancelled automatically, and all network interfaces will be closed.
+//! The two fundamental network objects this crate provides are the server and client. When starting a server or connecting via a client, the task will not block while it performs network operations in the background. Upon instantiation, both the server and client return handles that provide a mechanism for communicating with the background task, and instructing it to provide status information or halt network operations.
 //!
 //! ## Creating a server
 //!
@@ -12,12 +12,29 @@
 //! use rustdtp::{Server, ServerEvent};
 //!
 //! tokio_test::block_on(async {
-//!     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
-//!     println!("Server address: {}", server.get_addr().await.unwrap());
-//!     server.stop().await.unwrap();
-//!     let stop_event = server_event.recv().await.unwrap();
-//!     assert!(matches!(stop_event, ServerEvent::Stop));
-//! })
+//!     // Create a server that receives strings and returns the length of each string
+//!     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+//!
+//!     // Wait for events forever
+//!     loop {
+//!         match server_event.recv().await.unwrap() {
+//!             ServerEvent::Connect { client_id } => {
+//!                 println!("Client with ID {} connected", client_id);
+//!             },
+//!             ServerEvent::Disconnect { client_id } => {
+//!                 println!("Client with ID {} disconnected", client_id);
+//!             },
+//!             ServerEvent::Receive { client_id, data } => {
+//!                 // Send back the length of the string
+//!                 server.send(client_id, data.len()).await.unwrap();
+//!             },
+//!             ServerEvent::Stop => {
+//!                 println!("Server closed");
+//!                 break;
+//!             },
+//!         }
+//!     }
+//! });
 //! ```
 //!
 //! ## Creating a client
@@ -28,11 +45,25 @@
 //! use rustdtp::{Client, ClientEvent};
 //!
 //! tokio_test::block_on(async {
-//!     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
-//!     println!("Client address: {}", client.get_addr().await.unwrap());
-//!     client.disconnect().await.unwrap();
-//!     let disconnect_event = client_event.recv().await.unwrap();
-//!     assert!(matches!(disconnect_event, ClientEvent::Disconnect));
+//!     // Create a client that sends a message to the server and receives the length of the message
+//!     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+//!
+//!     // Send a message to the server
+//!     let msg = "Hello, server!".to_owned();
+//!     client.send(msg.clone()).await.unwrap();
+//!
+//!     // Receive the response
+//!     match client_event.recv().await.unwrap() {
+//!         ClientEvent::Receive { data } => {
+//!             // Validate the response
+//!             println!("Received response from server: {}", data);
+//!             assert_eq!(data, msg.len());
+//!         },
+//!         event => {
+//!             // Unexpected response
+//!             panic!("expected to receive a response from the server, instead got {:?}", event);
+//!         },
+//!     }
 //! });
 //! ```
 
@@ -44,9 +75,11 @@ mod command_channel;
 mod server;
 mod util;
 
+/// Types exported from the crate.
 pub use client::{Client, ClientEvent};
 pub use server::{Server, ServerEvent};
 
+/// Crate tests.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,9 +88,12 @@ mod tests {
     use std::time::Duration;
     use util::*;
 
+    /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;
+    /// Default server address.
     const SERVER_ADDR: (&'static str, u16) = ("127.0.0.1", 0);
 
+    /// Sleep for a desired duration.
     macro_rules! sleep {
         ($x:expr) => {
             thread::sleep(Duration::from_millis($x))
@@ -67,6 +103,7 @@ mod tests {
         };
     }
 
+    /// Test the message size portion encoding.
     #[test]
     fn test_encode_message_size() {
         assert_eq!(encode_message_size(0), [0, 0, 0, 0, 0]);
@@ -83,6 +120,7 @@ mod tests {
         );
     }
 
+    /// Test the message size portion decoding.
     #[test]
     fn test_decode_message_size() {
         assert_eq!(decode_message_size(&[0, 0, 0, 0, 0]), 0);
@@ -99,6 +137,7 @@ mod tests {
         );
     }
 
+    /// Test server creation and serving.
     #[tokio::test]
     async fn test_server_serve() {
         let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
@@ -111,8 +150,12 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test getting server and client addresses.
     #[tokio::test]
     async fn test_addresses() {
         let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
@@ -162,8 +205,13 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(client_event.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test sending messages between server and client.
     #[tokio::test]
     async fn test_send() {
         let (mut server, mut server_event) =
@@ -242,8 +290,13 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(client_event.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test sending large random messages between server and client.
     #[tokio::test]
     async fn test_large_send() {
         let (mut server, mut server_event) =
@@ -315,8 +368,13 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(client_event.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test having multiple clients connected, and process events from them individually.
     #[tokio::test]
     async fn test_multiple_clients() {
         let (mut server, mut server_event) =
@@ -475,8 +533,14 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(client_event_1.recv().await, None));
+        assert!(matches!(client_event_2.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test removing a client from the server.
     #[tokio::test]
     async fn test_remove_client() {
         let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
@@ -518,8 +582,13 @@ mod tests {
         let stop_event = server_event.recv().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
+
+        assert!(matches!(client_event.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
+        sleep!();
     }
 
+    /// Test stopping a server while a client is connected.
     #[tokio::test]
     async fn test_stop_server_while_client_connected() {
         let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
@@ -550,6 +619,10 @@ mod tests {
 
         let disconnect_event = client_event.recv().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
+        sleep!();
+
+        assert!(matches!(client_event.recv().await, None));
+        assert!(matches!(server_event.recv().await, None));
         sleep!();
     }
 }

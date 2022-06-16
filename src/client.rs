@@ -11,6 +11,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 
+/// A command sent from the client handle to the background client task.
 pub enum ClientCommand<S>
 where
     S: Serialize + Send + 'static,
@@ -21,6 +22,7 @@ where
     GetServerAddr,
 }
 
+/// The return value of a command executed on the background client task.
 pub enum ClientCommandReturn {
     Disconnect(io::Result<()>),
     Send(io::Result<()>),
@@ -28,6 +30,31 @@ pub enum ClientCommandReturn {
     GetServerAddr(io::Result<SocketAddr>),
 }
 
+/// An event from the client.
+///
+/// ```no_run
+/// use rustdtp::{Client, ClientEvent};
+///
+/// tokio_test::block_on(async {
+///     // Create the client
+///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+///
+///     // Wait for events forever
+///     loop {
+///         match client_event.recv().await {
+///             Some(event) => match event {
+///                 ClientEvent::Receive { data } => {
+///                     println!("Server sent: {}", data);
+///                 },
+///                 ClientEvent::Disconnect => {
+///                     println!("Client disconnected");
+///                 },
+///             },
+///             None => break,  // This will occur immediately after the disconnect event is received
+///         }
+///     }
+/// });
+/// ```
 #[derive(Debug)]
 pub enum ClientEvent<R>
 where
@@ -37,6 +64,7 @@ where
     Disconnect,
 }
 
+/// A handle to the client.
 pub struct ClientHandle<S>
 where
     S: Serialize + Send + 'static,
@@ -49,6 +77,32 @@ impl<S> ClientHandle<S>
 where
     S: Serialize + Send + 'static,
 {
+    /// Disconnect from the server.
+    ///
+    /// Returns a result of the error variant if an error occurred while disconnecting.
+    ///
+    /// ```no_run
+    /// use rustdtp::{Client, ClientEvent};
+    ///
+    /// tokio_test::block_on(async {
+    ///     // Create the client
+    ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///
+    ///     // Wait for events until the server requests the client leave
+    ///     loop {
+    ///         match client_event.recv().await.unwrap() {
+    ///             ClientEvent::Receive { data } => {
+    ///                 if data.as_str() == "Kindly leave" {
+    ///                     println!("Client disconnect requested");
+    ///                     client.disconnect().await.unwrap();
+    ///                     break;
+    ///                 }
+    ///             },
+    ///             _ => {},  // Do nothing for other events
+    ///         }
+    ///     }
+    /// });
+    /// ```
     pub async fn disconnect(mut self) -> io::Result<()> {
         let value = self
             .client_command_sender
@@ -58,6 +112,23 @@ where
         unwrap_enum!(value, ClientCommandReturn::Disconnect)
     }
 
+    /// Send data to the server.
+    ///
+    /// `data`: the data to send.
+    ///
+    /// Returns a result of the error variant if an error occurred while sending.
+    ///
+    /// ```no_run
+    /// use rustdtp::{Client, ClientEvent};
+    ///
+    /// tokio_test::block_on(async {
+    ///     // Create the client
+    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///
+    ///     // Send a greeting to the server upon connecting
+    ///     client.send("Hello, server!".to_owned()).await.unwrap();
+    /// });
+    /// ```
     pub async fn send(&mut self, data: S) -> io::Result<()> {
         let value = self
             .client_command_sender
@@ -66,6 +137,22 @@ where
         unwrap_enum!(value, ClientCommandReturn::Send)
     }
 
+    /// Get the address of the socket the client is connected on.
+    ///
+    /// Returns a result containing the address of the socket the client is connected on, or the error variant if an error occurred.
+    ///
+    /// ```no_run
+    /// use rustdtp::{Client, ClientEvent};
+    ///
+    /// tokio_test::block_on(async {
+    ///     // Create the client
+    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///
+    ///     // Get the client address
+    ///     let addr = client.get_addr().await.unwrap();
+    ///     println!("Client connected on {}", addr);
+    /// });
+    /// ```
     pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
@@ -74,6 +161,22 @@ where
         unwrap_enum!(value, ClientCommandReturn::GetAddr)
     }
 
+    /// Get the address of the server.
+    ///
+    /// Returns a result containing the address of the server, or the error variant if an error occurred.
+    ///
+    /// ```no_run
+    /// use rustdtp::{Client, ClientEvent};
+    ///
+    /// tokio_test::block_on(async {
+    ///     // Create the client
+    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///
+    ///     // Get the server address
+    ///     let addr = client.get_server_addr().await.unwrap();
+    ///     println!("Server address: {}", addr);
+    /// });
+    /// ```
     pub async fn get_server_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
@@ -83,6 +186,40 @@ where
     }
 }
 
+/// A socket client.
+///
+/// The client takes two generic parameters:
+///
+/// - `S`: the type of data that will be **sent** to the server.
+/// - `R`: the type of data that will be **received** from the server.
+///
+/// Both types must be serializable in order to be sent through the socket. When creating a server, the types should be swapped, since the client's send type will be the server's receive type and vice versa.
+///
+/// ```no_run
+/// use rustdtp::{Client, ClientEvent};
+///
+/// tokio_test::block_on(async {
+///     // Create a client that sends a message to the server and receives the length of the message
+///     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+///
+///     // Send a message to the server
+///     let msg = "Hello, server!".to_owned();
+///     client.send(msg.clone()).await.unwrap();
+///
+///     // Receive the response
+///     match client_event.recv().await.unwrap() {
+///         ClientEvent::Receive { data } => {
+///             // Validate the response
+///             println!("Received response from server: {}", data);
+///             assert_eq!(data, msg.len());
+///         },
+///         event => {
+///             // Unexpected response
+///             panic!("expected to receive a response from the server, instead got {:?}", event);
+///         },
+///     }
+/// });
+/// ```
 pub struct Client<S, R>
 where
     S: Serialize + Send + 'static,
@@ -97,6 +234,19 @@ where
     S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
+    /// Connect to a socket server.
+    ///
+    /// `addr`: the address to connect to.
+    ///
+    /// Returns a result containing a handle to the client and a channel from which to receive client events, or the error variant if an error occurred while connecting to the server.
+    ///
+    /// ```no_run
+    /// use rustdtp::{Client, ClientEvent};
+    ///
+    /// tokio_test::block_on(async {
+    ///     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    /// });
+    /// ```
     pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, Receiver<ClientEvent<R>>)>
     where
         A: ToSocketAddrs,
