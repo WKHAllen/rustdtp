@@ -57,7 +57,8 @@ pub enum ServerClientCommandReturn {
 /// ```no_run
 /// use rustdtp::{Server, ServerEvent};
 ///
-/// tokio_test::block_on(async {
+/// #[tokio::main]
+/// async fn main() {
 ///     // Create the server
 ///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
 ///
@@ -81,7 +82,7 @@ pub enum ServerClientCommandReturn {
 ///             None => break,  // This will occur immediately after the stop event is received
 ///         }
 ///     }
-/// });
+/// }
 /// ```
 #[derive(Debug)]
 pub enum ServerEvent<R>
@@ -114,7 +115,8 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
     ///
@@ -135,7 +137,7 @@ where
     ///
     ///     // The last event should be a stop event
     ///     assert!(matches!(server_event.recv().await.unwrap(), ServerEvent::Stop));
-    /// });
+    /// }
     /// ```
     pub async fn stop(mut self) -> io::Result<()> {
         let value = self
@@ -156,7 +158,8 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
@@ -170,7 +173,7 @@ where
     ///             _ => {},  // Do nothing for other events
     ///         }
     ///     }
-    /// });
+    /// }
     /// ```
     pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
         let value = self
@@ -189,7 +192,8 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
@@ -203,7 +207,7 @@ where
     ///             _ => {},  // Do nothing for other events
     ///         }
     ///     }
-    /// });
+    /// }
     /// ```
     pub async fn send_all(&mut self, data: S) -> io::Result<()> {
         let value = self
@@ -220,14 +224,15 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
     ///     // Get the server address
     ///     let addr = server.get_addr().await.unwrap();
     ///     println!("Server listening on {}", addr);
-    /// });
+    /// }
     /// ```
     pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
@@ -246,7 +251,8 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
@@ -261,7 +267,7 @@ where
     ///             _ => {},  // Do nothing for other events
     ///         }
     ///     }
-    /// });
+    /// }
     pub async fn get_client_addr(&mut self, client_id: usize) -> io::Result<SocketAddr> {
         let value = self
             .server_command_sender
@@ -279,7 +285,8 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, i32>::start(("0.0.0.0", 0)).await.unwrap();
     ///
@@ -300,7 +307,7 @@ where
     ///
     ///     // The last event should be a stop event
     ///     assert!(matches!(server_event.recv().await.unwrap(), ServerEvent::Stop));
-    /// });
+    /// }
     /// ```
     pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
         let value = self
@@ -323,7 +330,8 @@ where
 /// ```no_run
 /// use rustdtp::{Server, ServerEvent};
 ///
-/// tokio_test::block_on(async {
+/// #[tokio::main]
+/// async fn main() {
 ///     // Create a server that receives strings and returns the length of each string
 ///     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 ///
@@ -346,7 +354,7 @@ where
 ///             },
 ///         }
 ///     }
-/// });
+/// }
 /// ```
 pub struct Server<S, R>
 where
@@ -371,9 +379,10 @@ where
     /// ```no_run
     /// use rustdtp::{Server, ServerEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
-    /// });
+    /// }
     /// ```
     pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, Receiver<ServerEvent<R>>)>
     where

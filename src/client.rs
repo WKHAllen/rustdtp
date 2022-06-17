@@ -35,7 +35,8 @@ pub enum ClientCommandReturn {
 /// ```no_run
 /// use rustdtp::{Client, ClientEvent};
 ///
-/// tokio_test::block_on(async {
+/// #[tokio::main]
+/// async fn main() {
 ///     // Create the client
 ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
 ///
@@ -53,7 +54,7 @@ pub enum ClientCommandReturn {
 ///             None => break,  // This will occur immediately after the disconnect event is received
 ///         }
 ///     }
-/// });
+/// }
 /// ```
 #[derive(Debug)]
 pub enum ClientEvent<R>
@@ -84,7 +85,8 @@ where
     /// ```no_run
     /// use rustdtp::{Client, ClientEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the client
     ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
     ///
@@ -101,7 +103,7 @@ where
     ///             _ => {},  // Do nothing for other events
     ///         }
     ///     }
-    /// });
+    /// }
     /// ```
     pub async fn disconnect(mut self) -> io::Result<()> {
         let value = self
@@ -121,13 +123,14 @@ where
     /// ```no_run
     /// use rustdtp::{Client, ClientEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the client
     ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
     ///
     ///     // Send a greeting to the server upon connecting
     ///     client.send("Hello, server!".to_owned()).await.unwrap();
-    /// });
+    /// }
     /// ```
     pub async fn send(&mut self, data: S) -> io::Result<()> {
         let value = self
@@ -144,14 +147,15 @@ where
     /// ```no_run
     /// use rustdtp::{Client, ClientEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the client
     ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
     ///
     ///     // Get the client address
     ///     let addr = client.get_addr().await.unwrap();
     ///     println!("Client connected on {}", addr);
-    /// });
+    /// }
     /// ```
     pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
@@ -168,14 +172,15 @@ where
     /// ```no_run
     /// use rustdtp::{Client, ClientEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     // Create the client
     ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
     ///
     ///     // Get the server address
     ///     let addr = client.get_server_addr().await.unwrap();
     ///     println!("Server address: {}", addr);
-    /// });
+    /// }
     /// ```
     pub async fn get_server_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
@@ -198,7 +203,8 @@ where
 /// ```no_run
 /// use rustdtp::{Client, ClientEvent};
 ///
-/// tokio_test::block_on(async {
+/// #[tokio::main]
+/// async fn main() {
 ///     // Create a client that sends a message to the server and receives the length of the message
 ///     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
 ///
@@ -218,7 +224,7 @@ where
 ///             panic!("expected to receive a response from the server, instead got {:?}", event);
 ///         },
 ///     }
-/// });
+/// }
 /// ```
 pub struct Client<S, R>
 where
@@ -243,9 +249,10 @@ where
     /// ```no_run
     /// use rustdtp::{Client, ClientEvent};
     ///
-    /// tokio_test::block_on(async {
+    /// #[tokio::main]
+    /// async fn main() {
     ///     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
-    /// });
+    /// }
     /// ```
     pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, Receiver<ClientEvent<R>>)>
     where

@@ -11,7 +11,8 @@
 //! ```no_run
 //! use rustdtp::{Server, ServerEvent};
 //!
-//! tokio_test::block_on(async {
+//! #[tokio::main]
+//! async fn main() {
 //!     // Create a server that receives strings and returns the length of each string
 //!     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 //!
@@ -34,7 +35,7 @@
 //!             },
 //!         }
 //!     }
-//! });
+//! }
 //! ```
 //!
 //! ## Creating a client
@@ -44,7 +45,8 @@
 //! ```no_run
 //! use rustdtp::{Client, ClientEvent};
 //!
-//! tokio_test::block_on(async {
+//! #[tokio::main]
+//! async fn main() {
 //!     // Create a client that sends a message to the server and receives the length of the message
 //!     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
 //!
@@ -64,7 +66,7 @@
 //!             panic!("expected to receive a response from the server, instead got {:?}", event);
 //!         },
 //!     }
-//! });
+//! }
 //! ```
 
 #![crate_type = "lib"]
