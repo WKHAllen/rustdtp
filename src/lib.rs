@@ -68,12 +68,17 @@
 //!     }
 //! }
 //! ```
+//!
+//! ## Security
+//!
+//! Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
 
 #![crate_type = "lib"]
 #![crate_name = "rustdtp"]
 
 mod client;
 mod command_channel;
+mod crypto;
 mod server;
 mod util;
 

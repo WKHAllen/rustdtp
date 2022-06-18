@@ -10,6 +10,9 @@ pub const LEN_SIZE: usize = 5;
 /// The size of a channel buffer.
 pub const CHANNEL_BUFFER_SIZE: usize = 100;
 
+/// The number of bits to use for an RSA key.
+pub const RSA_KEY_BITS: usize = 2048;
+
 /// Generate a generic IO error.
 ///
 /// `err`: the underlying error.
@@ -20,6 +23,21 @@ where
     E: Into<Box<dyn error::Error + Send + Sync>>,
 {
     Err(io::Error::new(io::ErrorKind::Other, err))
+}
+
+/// Convert a result into a generic IO result.
+///
+/// `value`: the result to convert.
+///
+/// Returns the result converted into a generic IO result.
+pub fn into_generic_io_result<T, E>(value: Result<T, E>) -> io::Result<T>
+where
+    E: Into<Box<dyn error::Error + Send + Sync>>,
+{
+    match value {
+        Ok(val) => Ok(val),
+        Err(e) => generic_io_error(e),
+    }
 }
 
 /// Encode the size portion of a message.

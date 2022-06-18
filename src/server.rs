@@ -1,7 +1,9 @@
 //! The server network interface.
 
 use super::command_channel::*;
+use super::crypto::*;
 use super::util::*;
+use rsa::pkcs8::EncodePublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::collections::HashMap;
 use std::io;
@@ -421,8 +423,67 @@ where
                     tokio::select! {
                         // Accept a connecting client
                         accept_value = listener.accept() => {
-                            // Get the client socket, panicking if an error occurs
+                            // Get the client socket, exiting if an error occurs
                             let (mut socket, _) = accept_value?;
+
+                            // Generate RSA keys
+                            let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys(RSA_KEY_BITS))?;
+                            // Convert the RSA public key into a string...
+                            let rsa_pub_str = into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
+                            // ...and then into bytes
+                            let rsa_pub_bytes = rsa_pub_str.as_bytes();
+                            // Create the buffer containing the RSA public key and its size
+                            let mut rsa_pub_buffer = encode_message_size(rsa_pub_bytes.len()).to_vec();
+                            // Extend the buffer with the RSA public key bytes
+                            rsa_pub_buffer.extend(rsa_pub_bytes);
+                            // Send the RSA public key to the client
+                            let n = socket.write(&rsa_pub_buffer).await?;
+
+                            // If there were no bytes written, or if there were fewer
+                            // bytes written than there should have been, close the
+                            // socket and exit
+                            if n != rsa_pub_buffer.len() {
+                                socket.shutdown().await?;
+                                return generic_io_error("failed to write RSA public key data to socket");
+                            }
+
+                            // Buffer in which to receive the size portion of the AES key
+                            let mut aes_key_size_buffer = [0; LEN_SIZE];
+                            // Read the AES key from the client
+                            let n_size = socket.read(&mut aes_key_size_buffer).await?;
+
+                            // If there were no bytes read, or if there were fewer bytes read than there
+                            // should have been, close the socket and exit
+                            if n_size != LEN_SIZE {
+                                socket.shutdown().await?;
+                                return generic_io_error("failed to read AES key size from socket");
+                            };
+
+                            // Decode the size portion of the AES key
+                            let aes_key_size = decode_message_size(&aes_key_size_buffer);
+                            // Initialize the buffer for the AES key
+                            let mut aes_key_buffer = vec![0; aes_key_size];
+
+                            // Read the AES key portion from the client socket, returning an error if the
+                            // socket could not be read
+                            let n_aes_key = socket.read(&mut aes_key_buffer).await?;
+
+                            // If there were no bytes read, or if there were fewer bytes read than there
+                            // should have been, close the socket and exit
+                            if n_aes_key != aes_key_size {
+                                socket.shutdown().await?;
+                                return generic_io_error("failed to read AES key data from socket");
+                            }
+
+                            // Decrypt the AES key
+                            let aes_key_decrypted = into_generic_io_result(rsa_decrypt(rsa_priv, &aes_key_buffer))?;
+
+                            // Assert that the AES key is the correct size
+                            let aes_key: [u8; 32] = match aes_key_decrypted.try_into() {
+                                Ok(val) => Ok(val),
+                                Err(_e) => generic_io_error("unexpected size for AES key"),
+                            }?;
+
                             // Channels for sending commands from the background server task to a background client task
                             let (client_command_sender, mut client_command_receiver) = command_channel();
                             // New client ID
@@ -459,20 +520,26 @@ where
                                                 };
 
                                                 // Decode the size portion of the message
-                                                let data_size = decode_message_size(&size_buffer);
+                                                let encrypted_data_size = decode_message_size(&size_buffer);
                                                 // Initialize the buffer for the data portion of the message
-                                                let mut data_buffer = vec![0; data_size];
+                                                let mut encrypted_data_buffer = vec![0; encrypted_data_size];
 
                                                 // Read the data portion from the client socket, returning an error if the
                                                 // socket could not be read
-                                                let n_data = socket.read(&mut data_buffer).await?;
+                                                let n_data = socket.read(&mut encrypted_data_buffer).await?;
 
                                                 // If there were no bytes read, or if there were fewer bytes read than there
                                                 // should have been, close the socket
-                                                if n_data != data_size {
+                                                if n_data != encrypted_data_size {
                                                     socket.shutdown().await?;
                                                     break;
                                                 }
+
+                                                // Decrypt the data
+                                                let data_buffer = match aes_decrypt(&aes_key, &encrypted_data_buffer) {
+                                                    Ok(val) => Ok(val),
+                                                    Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
+                                                }?;
 
                                                 // Deserialize the message data
                                                 if let Ok(data) = serde_json::from_slice(&data_buffer) {
@@ -500,15 +567,20 @@ where
                                                                 let value = {
                                                                     // Serialize the data
                                                                     let data_buffer = serde_json::to_vec(&data)?;
+                                                                    // Encrypt the serialized data
+                                                                    let encrypted_data_buffer = match aes_encrypt(&aes_key, &data_buffer) {
+                                                                        Ok(val) => Ok(val),
+                                                                        Err(e) => generic_io_error(format!("failed to encrypt data: {}", e)),
+                                                                    }?;
                                                                     // Encode the message size to a buffer
-                                                                    let size_buffer = encode_message_size(data_buffer.len());
+                                                                    let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
                                                                     // Initialize the message buffer
                                                                     let mut buffer = vec![];
                                                                     // Extend the buffer to contain the payload size
                                                                     buffer.extend_from_slice(&size_buffer);
                                                                     // Extend the buffer to contain the payload data
-                                                                    buffer.extend(&data_buffer);
+                                                                    buffer.extend(&encrypted_data_buffer);
 
                                                                     // Write the data to the client socket
                                                                     let n = socket.write(&buffer).await?;

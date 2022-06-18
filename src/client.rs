@@ -1,7 +1,10 @@
 //! The client network interface.
 
 use super::command_channel::*;
+use super::crypto::*;
 use super::util::*;
+use rsa::pkcs8::DecodePublicKey;
+use rsa::RsaPublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::io;
 use std::marker::PhantomData;
@@ -260,6 +263,59 @@ where
     {
         // Client TCP stream
         let mut stream = TcpStream::connect(addr).await?;
+
+        // Buffer in which to receive the size portion of the RSA public key
+        let mut rsa_pub_size_buffer = [0; LEN_SIZE];
+        // Read size portion of RSA public key
+        let n_size = stream.read(&mut rsa_pub_size_buffer).await?;
+
+        // If there were no bytes read, or if there were fewer bytes read than there
+        // should have been, close the stream and exit
+        if n_size != LEN_SIZE {
+            stream.shutdown().await?;
+            return generic_io_error("failed to read RSA public key size from stream");
+        };
+
+        // Decode the size portion of the RSA public key
+        let rsa_pub_size = decode_message_size(&rsa_pub_size_buffer);
+        // Initialize the buffer for the RSA public key
+        let mut rsa_pub_buffer = vec![0; rsa_pub_size];
+
+        // Read the RSA public key portion from the stream, returning an error if the
+        // stream could not be read
+        let n_rsa_pub = stream.read(&mut rsa_pub_buffer).await?;
+
+        // If there were no bytes read, or if there were fewer bytes read than there
+        // should have been, close the stream and exit
+        if n_rsa_pub != rsa_pub_size {
+            stream.shutdown().await?;
+            return generic_io_error("failed to read RSA public key data from stream");
+        }
+
+        // Read the RSA public key into a string, returning an error if UTF-8 conversion failed
+        let rsa_pub_str = into_generic_io_result(String::from_utf8(rsa_pub_buffer))?;
+        // Read the RSA public key string into an RSA public key object
+        let rsa_pub = into_generic_io_result(RsaPublicKey::from_public_key_pem(&rsa_pub_str))?;
+
+        // Generate AES key
+        let aes_key = aes_key();
+        // Encrypt AES key with RSA public key
+        let aes_key_encrypted = into_generic_io_result(rsa_encrypt(rsa_pub, &aes_key))?;
+        // Create the buffer containing the AES key and its size
+        let mut aes_key_buffer = encode_message_size(aes_key_encrypted.len()).to_vec();
+        // Extend the buffer with the AES key
+        aes_key_buffer.extend(aes_key_encrypted);
+        // Send the encrypted AES key to the server
+        let n = stream.write(&aes_key_buffer).await?;
+
+        // If there were no bytes written, or if there were fewer
+        // bytes written than there should have been, close the
+        // stream and exit
+        if n != aes_key_buffer.len() {
+            stream.shutdown().await?;
+            return generic_io_error("failed to write encrypted AES key data to stream");
+        }
+
         // Channels for sending commands from the client handle to the background client task
         let (client_command_sender, mut client_command_receiver) = command_channel();
         // Channels for sending event notifications from the background client task
@@ -290,20 +346,26 @@ where
                             }
 
                             // Decode the size portion of the message
-                            let data_size = decode_message_size(&size_buffer);
+                            let encrypted_data_size = decode_message_size(&size_buffer);
                             // Initialize the buffer for the data portion of the message
-                            let mut data_buffer = vec![0; data_size];
+                            let mut encrypted_data_buffer = vec![0; encrypted_data_size];
 
                             // Read the data portion from the client stream, returning an error if the
                             // stream could not be read
-                            let n_data = stream.read(&mut data_buffer).await?;
+                            let n_data = stream.read(&mut encrypted_data_buffer).await?;
 
                             // If there were no bytes read, or if there were fewer bytes read than there
                             // should have been, close the stream
-                            if n_data != data_size {
+                            if n_data != encrypted_data_size {
                                 stream.shutdown().await?;
                                 break;
                             }
+
+                            // Decrypt the data
+                            let data_buffer = match aes_decrypt(&aes_key, &encrypted_data_buffer) {
+                                Ok(val) => Ok(val),
+                                Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
+                            }?;
 
                             // Deserialize the message data
                             if let Ok(data) = serde_json::from_slice(&data_buffer) {
@@ -344,15 +406,20 @@ where
                                             let value = {
                                                 // Serialize the data
                                                 let data_buffer = serde_json::to_vec(&data)?;
+                                                // Encrypt the serialized data
+                                                let encrypted_data_buffer = match aes_encrypt(&aes_key, &data_buffer) {
+                                                    Ok(val) => Ok(val),
+                                                    Err(e) => generic_io_error(format!("failed to encrypt data: {}", e)),
+                                                }?;
                                                 // Encode the message size to a buffer
-                                                let size_buffer = encode_message_size(data_buffer.len());
+                                                let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
                                                 // Initialize the message buffer
                                                 let mut buffer = vec![];
                                                 // Extend the buffer to contain the payload size
                                                 buffer.extend_from_slice(&size_buffer);
                                                 // Extend the buffer to contain the payload data
-                                                buffer.extend(&data_buffer);
+                                                buffer.extend(&encrypted_data_buffer);
 
                                                 // Write the data to the stream
                                                 let n = stream.write(&buffer).await?;
