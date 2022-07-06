@@ -438,6 +438,8 @@ where
                             rsa_pub_buffer.extend(rsa_pub_bytes);
                             // Send the RSA public key to the client
                             let n = socket.write(&rsa_pub_buffer).await?;
+                            // Flush the stream
+                            socket.flush().await?;
 
                             // If there were no bytes written, or if there were fewer
                             // bytes written than there should have been, close the
@@ -584,6 +586,8 @@ where
 
                                                                     // Write the data to the client socket
                                                                     let n = socket.write(&buffer).await?;
+                                                                    // Flush the stream
+                                                                    socket.flush().await?;
 
                                                                     // If there were no bytes written, or if there were fewer
                                                                     // bytes written than there should have been, close the

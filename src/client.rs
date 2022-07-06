@@ -307,6 +307,8 @@ where
         aes_key_buffer.extend(aes_key_encrypted);
         // Send the encrypted AES key to the server
         let n = stream.write(&aes_key_buffer).await?;
+        // Flush the stream
+        stream.flush().await?;
 
         // If there were no bytes written, or if there were fewer
         // bytes written than there should have been, close the
@@ -423,6 +425,8 @@ where
 
                                                 // Write the data to the stream
                                                 let n = stream.write(&buffer).await?;
+                                                // Flush the stream
+                                                stream.flush().await?;
 
                                                 // If there were no bytes written, or if there were fewer
                                                 // bytes written than there should have been, close the
