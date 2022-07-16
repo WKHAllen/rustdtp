@@ -1,8 +1,8 @@
 //! The client network interface.
 
-use super::command_channel::*;
-use super::crypto::*;
-use super::util::*;
+use crate::command_channel::*;
+use crate::crypto::*;
+use crate::util::*;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
