@@ -16,9 +16,9 @@ async fn main() {
     // Create a server that receives strings and returns the length of each string
     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 
-    // Wait for events forever
-    loop {
-        match server_event.recv().await.unwrap() {
+    // Iterate over events
+    while let Some(event) = server_event.next().await {
+        match event {
             ServerEvent::Connect { client_id } => {
                 println!("Client with ID {} connected", client_id);
             },
@@ -30,8 +30,8 @@ async fn main() {
                 server.send(client_id, data.len()).await.unwrap();
             },
             ServerEvent::Stop => {
+                // No more events will be sent, and the loop will end
                 println!("Server closed");
-                break;
             },
         }
     }
@@ -55,7 +55,7 @@ async fn main() {
     client.send(msg.clone()).await.unwrap();
 
     // Receive the response
-    match client_event.recv().await.unwrap() {
+    match client_event.next().await.unwrap() {
         ClientEvent::Receive { data } => {
             // Validate the response
             println!("Received response from server: {}", data);
@@ -68,6 +68,10 @@ async fn main() {
     }
 }
 ```
+
+## Event iteration
+
+Note that in order to iterate over events, the `EventStreamExt` extension trait needs to be in scope.
 
 ## Security
 

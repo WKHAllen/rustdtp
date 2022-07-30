@@ -2,6 +2,7 @@
 
 use crate::command_channel::*;
 use crate::crypto::*;
+use crate::event_stream::*;
 use crate::util::*;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
@@ -11,7 +12,7 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
 
 /// A command sent from the client handle to the background client task.
@@ -36,25 +37,23 @@ pub enum ClientCommandReturn {
 /// An event from the client.
 ///
 /// ```no_run
-/// use rustdtp::{Client, ClientEvent};
+/// use rustdtp::{Client, ClientEvent, EventStreamExt};
 ///
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create the client
 ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
 ///
-///     // Wait for events forever
-///     loop {
-///         match client_event.recv().await {
-///             Some(event) => match event {
-///                 ClientEvent::Receive { data } => {
-///                     println!("Server sent: {}", data);
-///                 },
-///                 ClientEvent::Disconnect => {
-///                     println!("Client disconnected");
-///                 },
+///     // Iterate over events
+///     while let Some(event) = client_event.next().await {
+///         match event {
+///             ClientEvent::Receive { data } => {
+///                 println!("Server sent: {}", data);
 ///             },
-///             None => break,  // This will occur immediately after the disconnect event is received
+///             ClientEvent::Disconnect => {
+///                 // No more events will be sent, and the loop will end
+///                 println!("Client disconnected");
+///             },
 ///         }
 ///     }
 /// }
@@ -86,7 +85,7 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent};
+    /// use rustdtp::{Client, ClientEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -94,8 +93,8 @@ where
     ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
     ///
     ///     // Wait for events until the server requests the client leave
-    ///     loop {
-    ///         match client_event.recv().await.unwrap() {
+    ///     while let Some(event) = client_event.next().await {
+    ///         match event {
     ///             ClientEvent::Receive { data } => {
     ///                 if data.as_str() == "Kindly leave" {
     ///                     println!("Client disconnect requested");
@@ -204,7 +203,7 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating a server, the types should be swapped, since the client's send type will be the server's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::{Client, ClientEvent};
+/// use rustdtp::{Client, ClientEvent, EventStreamExt};
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -216,7 +215,7 @@ where
 ///     client.send(msg.clone()).await.unwrap();
 ///
 ///     // Receive the response
-///     match client_event.recv().await.unwrap() {
+///     match client_event.next().await.unwrap() {
 ///         ClientEvent::Receive { data } => {
 ///             // Validate the response
 ///             println!("Received response from server: {}", data);
@@ -257,7 +256,7 @@ where
     ///     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
     /// }
     /// ```
-    pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, Receiver<ClientEvent<R>>)>
+    pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
     where
         A: ToSocketAddrs,
     {
@@ -503,6 +502,9 @@ where
             client_task_handle,
         };
 
-        Ok((client_handle, client_event_receiver))
+        // Create an event stream for the client
+        let client_event_stream = new_event_stream(client_event_receiver);
+
+        Ok((client_handle, client_event_stream))
     }
 }

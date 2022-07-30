@@ -9,16 +9,16 @@
 //! A server can be built using the `Server` implementation:
 //!
 //! ```no_run
-//! use rustdtp::{Server, ServerEvent};
+//! use rustdtp::{Server, ServerEvent, EventStreamExt};
 //!
 //! #[tokio::main]
 //! async fn main() {
 //!     // Create a server that receives strings and returns the length of each string
 //!     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 //!
-//!     // Wait for events forever
-//!     loop {
-//!         match server_event.recv().await.unwrap() {
+//!     // Iterate over events
+//!     while let Some(event) = server_event.next().await {
+//!         match event {
 //!             ServerEvent::Connect { client_id } => {
 //!                 println!("Client with ID {} connected", client_id);
 //!             },
@@ -30,8 +30,8 @@
 //!                 server.send(client_id, data.len()).await.unwrap();
 //!             },
 //!             ServerEvent::Stop => {
+//!                 // No more events will be sent, and the loop will end
 //!                 println!("Server closed");
-//!                 break;
 //!             },
 //!         }
 //!     }
@@ -43,7 +43,7 @@
 //! A client can be built using the `Client` implementation:
 //!
 //! ```no_run
-//! use rustdtp::{Client, ClientEvent};
+//! use rustdtp::{Client, ClientEvent, EventStreamExt};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -55,7 +55,7 @@
 //!     client.send(msg.clone()).await.unwrap();
 //!
 //!     // Receive the response
-//!     match client_event.recv().await.unwrap() {
+//!     match client_event.next().await.unwrap() {
 //!         ClientEvent::Receive { data } => {
 //!             // Validate the response
 //!             println!("Received response from server: {}", data);
@@ -69,6 +69,10 @@
 //! }
 //! ```
 //!
+//! ## Event iteration
+//!
+//! Note that in order to iterate over events, the `EventStreamExt` extension trait needs to be in scope.
+//!
 //! ## Security
 //!
 //! Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
@@ -79,12 +83,15 @@
 mod client;
 mod command_channel;
 mod crypto;
+mod event_stream;
 mod server;
 mod util;
 
 /// Types exported from the crate.
-pub use client::{Client, ClientEvent};
-pub use server::{Server, ServerEvent};
+pub use client::{Client, ClientEvent, ClientHandle};
+pub use event_stream::EventStream;
+pub use server::{Server, ServerEvent, ServerHandle};
+pub use tokio_stream::StreamExt as EventStreamExt;
 
 /// Crate tests.
 #[cfg(test)]
@@ -154,11 +161,11 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -179,7 +186,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.recv().await.unwrap();
+        let client_connect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -197,11 +204,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.recv().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.recv().await.unwrap();
+        let client_disconnect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -209,12 +216,12 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(client_event.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -237,7 +244,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.recv().await.unwrap();
+        let client_connect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -248,7 +255,7 @@ mod tests {
         server.send_all(msg_from_server).await.unwrap();
         sleep!();
 
-        let client_recv_event_1 = client_event.recv().await.unwrap();
+        let client_recv_event_1 = client_event.next().await.unwrap();
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
@@ -261,7 +268,7 @@ mod tests {
         client.send(msg_from_client.clone()).await.unwrap();
         sleep!();
 
-        let server_recv_event = server_event.recv().await.unwrap();
+        let server_recv_event = server_event.next().await.unwrap();
         match server_recv_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -272,7 +279,7 @@ mod tests {
         }
         sleep!();
 
-        let client_recv_event_2 = client_event.recv().await.unwrap();
+        let client_recv_event_2 = client_event.next().await.unwrap();
         match client_recv_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client.len());
@@ -282,11 +289,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.recv().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.recv().await.unwrap();
+        let client_disconnect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -294,12 +301,12 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(client_event.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -322,7 +329,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.recv().await.unwrap();
+        let client_connect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -337,7 +344,7 @@ mod tests {
         server.send_all(large_msg_from_server).await.unwrap();
         sleep!();
 
-        let client_large_msg_event = client_event.recv().await.unwrap();
+        let client_large_msg_event = client_event.next().await.unwrap();
         match client_large_msg_event {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, large_msg_from_server);
@@ -349,7 +356,7 @@ mod tests {
         client.send(large_msg_from_client).await.unwrap();
         sleep!();
 
-        let server_large_msg_event = server_event.recv().await.unwrap();
+        let server_large_msg_event = server_event.next().await.unwrap();
         match server_large_msg_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -360,11 +367,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.recv().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.recv().await.unwrap();
+        let client_disconnect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -372,12 +379,12 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(client_event.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -400,7 +407,7 @@ mod tests {
         println!("Client 1 address: {}", client_addr_1);
         sleep!();
 
-        let client_connect_event_1 = server_event.recv().await.unwrap();
+        let client_connect_event_1 = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event_1,
             ServerEvent::Connect { client_id: 0 }
@@ -425,7 +432,7 @@ mod tests {
         println!("Client 2 address: {}", client_addr_2);
         sleep!();
 
-        let client_connect_event_2 = server_event.recv().await.unwrap();
+        let client_connect_event_2 = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event_2,
             ServerEvent::Connect { client_id: 1 }
@@ -446,7 +453,7 @@ mod tests {
         client_1.send(msg_from_client_1.clone()).await.unwrap();
         sleep!();
 
-        let server_msg_from_client_1 = server_event.recv().await.unwrap();
+        let server_msg_from_client_1 = server_event.next().await.unwrap();
         match server_msg_from_client_1 {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -457,7 +464,7 @@ mod tests {
         }
         sleep!();
 
-        let server_reply_event_1 = client_event_1.recv().await.unwrap();
+        let server_reply_event_1 = client_event_1.next().await.unwrap();
         match server_reply_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client_1.len());
@@ -470,7 +477,7 @@ mod tests {
         client_2.send(msg_from_client_2.clone()).await.unwrap();
         sleep!();
 
-        let server_msg_from_client_2 = server_event.recv().await.unwrap();
+        let server_msg_from_client_2 = server_event.next().await.unwrap();
         match server_msg_from_client_2 {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 1);
@@ -481,7 +488,7 @@ mod tests {
         }
         sleep!();
 
-        let server_reply_event_2 = client_event_2.recv().await.unwrap();
+        let server_reply_event_2 = client_event_2.next().await.unwrap();
         match server_reply_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client_2.len());
@@ -494,7 +501,7 @@ mod tests {
         server.send_all(msg_from_server.clone()).await.unwrap();
         sleep!();
 
-        let server_msg_1 = client_event_1.recv().await.unwrap();
+        let server_msg_1 = client_event_1.next().await.unwrap();
         match server_msg_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
@@ -503,7 +510,7 @@ mod tests {
         }
         sleep!();
 
-        let server_msg_2 = client_event_2.recv().await.unwrap();
+        let server_msg_2 = client_event_2.next().await.unwrap();
         match server_msg_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
@@ -513,11 +520,11 @@ mod tests {
         sleep!();
 
         client_1.disconnect().await.unwrap();
-        let disconnect_event_1 = client_event_1.recv().await.unwrap();
+        let disconnect_event_1 = client_event_1.next().await.unwrap();
         assert!(matches!(disconnect_event_1, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event_1 = server_event.recv().await.unwrap();
+        let client_disconnect_event_1 = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event_1,
             ServerEvent::Disconnect { client_id: 0 }
@@ -525,11 +532,11 @@ mod tests {
         sleep!();
 
         client_2.disconnect().await.unwrap();
-        let disconnect_event_2 = client_event_2.recv().await.unwrap();
+        let disconnect_event_2 = client_event_2.next().await.unwrap();
         assert!(matches!(disconnect_event_2, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event_2 = server_event.recv().await.unwrap();
+        let client_disconnect_event_2 = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event_2,
             ServerEvent::Disconnect { client_id: 1 }
@@ -537,13 +544,13 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(client_event_1.recv().await, None));
-        assert!(matches!(client_event_2.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event_1.next().await, None));
+        assert!(matches!(client_event_2.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -564,7 +571,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.recv().await.unwrap();
+        let client_connect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -574,11 +581,11 @@ mod tests {
         server.remove_client(0).await.unwrap();
         sleep!();
 
-        let disconnect_event = client_event.recv().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.recv().await.unwrap();
+        let client_disconnect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -586,12 +593,12 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(matches!(client_event.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 
@@ -612,7 +619,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.recv().await.unwrap();
+        let client_connect_event = server_event.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -620,16 +627,16 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.recv().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        let disconnect_event = client_event.recv().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        assert!(matches!(client_event.recv().await, None));
-        assert!(matches!(server_event.recv().await, None));
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
         sleep!();
     }
 }

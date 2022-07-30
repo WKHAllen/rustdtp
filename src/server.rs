@@ -2,6 +2,7 @@
 
 use crate::command_channel::*;
 use crate::crypto::*;
+use crate::event_stream::*;
 use crate::util::*;
 use rsa::pkcs8::EncodePublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
@@ -11,7 +12,7 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
 
 /// A command sent from the server handle to the background server task.
@@ -57,31 +58,29 @@ pub enum ServerClientCommandReturn {
 /// An event from the server.
 ///
 /// ```no_run
-/// use rustdtp::{Server, ServerEvent};
+/// use rustdtp::{Server, ServerEvent, EventStreamExt};
 ///
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create the server
 ///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
 ///
-///     // Wait for events forever
-///     loop {
-///         match server_event.recv().await {
-///             Some(event) => match event {
-///                 ServerEvent::Connect { client_id } => {
-///                     println!("Client with ID {} connected", client_id);
-///                 },
-///                 ServerEvent::Disconnect { client_id } => {
-///                     println!("Client with ID {} disconnected", client_id);
-///                 },
-///                 ServerEvent::Receive { client_id, data } => {
-///                     println!("Client with ID {} sent: {}", client_id, data);
-///                 },
-///                 ServerEvent::Stop => {
-///                     println!("Server closed");
-///                 },
+///     // Iterate over events
+///     while let Some(event) = server_event.next().await {
+///         match event {
+///             ServerEvent::Connect { client_id } => {
+///                 println!("Client with ID {} connected", client_id);
 ///             },
-///             None => break,  // This will occur immediately after the stop event is received
+///             ServerEvent::Disconnect { client_id } => {
+///                 println!("Client with ID {} disconnected", client_id);
+///             },
+///             ServerEvent::Receive { client_id, data } => {
+///                 println!("Client with ID {} sent: {}", client_id, data);
+///             },
+///             ServerEvent::Stop => {
+///                 // No more events will be sent, and the loop will end
+///                 println!("Server closed");
+///             },
 ///         }
 ///     }
 /// }
@@ -115,7 +114,7 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting clients.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -123,8 +122,8 @@ where
     ///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
     ///
     ///     // Wait for events until a client requests the server be stopped
-    ///     loop {
-    ///         match server_event.recv().await.unwrap() {
+    ///     while let Some(event) = server_event.next().await {
+    ///         match event {
     ///             // Stop the server when a client requests it be stopped
     ///             ServerEvent::Receive { client_id, data } => {
     ///                 if data.as_str() == "Stop the server!" {
@@ -138,7 +137,7 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.recv().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
     pub async fn stop(mut self) -> io::Result<()> {
@@ -158,16 +157,16 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
-    ///     // Wait for events forever
-    ///     loop {
-    ///         match server_event.recv().await.unwrap() {
+    ///     // Iterate over events
+    ///     while let Some(event) = server_event.next().await {
+    ///         match event {
     ///             // When a client connects, send a greeting
     ///             ServerEvent::Connect { client_id } => {
     ///                 server.send(client_id, format!("Hello, client {}!", client_id)).await.unwrap();
@@ -192,16 +191,16 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
-    ///     // Wait for events forever
-    ///     loop {
-    ///         match server_event.recv().await.unwrap() {
+    ///     // Iterate over events
+    ///     while let Some(event) = server_event.next().await {
+    ///         match event {
     ///             // When a client connects, notify all clients
     ///             ServerEvent::Connect { client_id } => {
     ///                 server.send_all(format!("A new client with ID {} has joined!", client_id)).await.unwrap();
@@ -251,16 +250,16 @@ where
     /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
     ///
-    ///     // Wait for events forever
-    ///     loop {
-    ///         match server_event.recv().await.unwrap() {
+    ///     // Iterate over events
+    ///     while let Some(event) = server_event.next().await {
+    ///         match event {
     ///             // When a client connects, get their address
     ///             ServerEvent::Connect { client_id } => {
     ///                 let addr = server.get_client_addr(client_id).await.unwrap();
@@ -285,16 +284,16 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting the client, or if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
     ///     let (mut server, mut server_event) = Server::<String, i32>::start(("0.0.0.0", 0)).await.unwrap();
     ///
-    ///     // Wait for events forever
-    ///     loop {
-    ///         match server_event.recv().await.unwrap() {
+    ///     // Iterate over events
+    ///     while let Some(event) = server_event.next().await {
+    ///         match event {
     ///             // Disconnect a client if they send an even number
     ///             ServerEvent::Receive { client_id, data } => {
     ///                 if data % 2 == 0 {
@@ -308,7 +307,7 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.recv().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
     pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
@@ -330,16 +329,16 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::{Server, ServerEvent};
+/// use rustdtp::{Server, ServerEvent, EventStreamExt};
 ///
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create a server that receives strings and returns the length of each string
 ///     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 ///
-///     // Wait for events forever
-///     loop {
-///         match server_event.recv().await.unwrap() {
+///     // Iterate over events
+///     while let Some(event) = server_event.next().await {
+///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
 ///             },
@@ -351,8 +350,8 @@ where
 ///                 server.send(client_id, data.len()).await.unwrap();
 ///             },
 ///             ServerEvent::Stop => {
+///                 // No more events will be sent, and the loop will end
 ///                 println!("Server closed");
-///                 break;
 ///             },
 ///         }
 ///     }
@@ -386,7 +385,7 @@ where
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
     /// }
     /// ```
-    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, Receiver<ServerEvent<R>>)>
+    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
     where
         A: ToSocketAddrs,
     {
@@ -837,6 +836,9 @@ where
             server_task_handle,
         };
 
-        Ok((server_handle, server_event_receiver))
+        // Create an event stream for the server
+        let server_event_stream = new_event_stream(server_event_receiver);
+
+        Ok((server_handle, server_event_stream))
     }
 }
