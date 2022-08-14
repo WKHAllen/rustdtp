@@ -9,7 +9,7 @@ The two fundamental network objects this crate provides are the server and clien
 A server can be built using the `Server` implementation:
 
 ```rust
-use rustdtp::{Server, ServerEvent};
+use rustdtp::{Server, ServerEvent, EventStreamExt};
 
 #[tokio::main]
 async fn main() {
@@ -43,7 +43,7 @@ async fn main() {
 A client can be built using the `Client` implementation:
 
 ```rust
-use rustdtp::{Client, ClientEvent};
+use rustdtp::{Client, ClientEvent, EventStreamExt};
 
 #[tokio::main]
 async fn main() {
