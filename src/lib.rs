@@ -21,18 +21,18 @@
 //!         match event {
 //!             ServerEvent::Connect { client_id } => {
 //!                 println!("Client with ID {} connected", client_id);
-//!             },
+//!             }
 //!             ServerEvent::Disconnect { client_id } => {
 //!                 println!("Client with ID {} disconnected", client_id);
-//!             },
+//!             }
 //!             ServerEvent::Receive { client_id, data } => {
 //!                 // Send back the length of the string
 //!                 server.send(client_id, data.len()).await.unwrap();
-//!             },
+//!             }
 //!             ServerEvent::Stop => {
 //!                 // No more events will be sent, and the loop will end
 //!                 println!("Server closed");
-//!             },
+//!             }
 //!         }
 //!     }
 //! }
@@ -60,11 +60,11 @@
 //!             // Validate the response
 //!             println!("Received response from server: {}", data);
 //!             assert_eq!(data, msg.len());
-//!         },
+//!         }
 //!         event => {
 //!             // Unexpected response
 //!             panic!("expected to receive a response from the server, instead got {:?}", event);
-//!         },
+//!         }
 //!     }
 //! }
 //! ```
@@ -80,6 +80,14 @@
 #![crate_type = "lib"]
 #![crate_name = "rustdtp"]
 
+/// Types re-exported from the crate.
+pub use tokio_stream::StreamExt as EventStreamExt;
+
+/// Types exported from the crate.
+pub use client::{Client, ClientEvent, ClientHandle};
+pub use event_stream::EventStream;
+pub use server::{Server, ServerEvent, ServerHandle};
+
 mod client;
 mod command_channel;
 mod crypto;
@@ -87,20 +95,17 @@ mod event_stream;
 mod server;
 mod util;
 
-/// Types exported from the crate.
-pub use client::{Client, ClientEvent, ClientHandle};
-pub use event_stream::EventStream;
-pub use server::{Server, ServerEvent, ServerHandle};
-pub use tokio_stream::StreamExt as EventStreamExt;
-
 /// Crate tests.
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand;
     use std::thread;
     use std::time::Duration;
+
+    use rand;
+
     use util::*;
+
+    use super::*;
 
     /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;

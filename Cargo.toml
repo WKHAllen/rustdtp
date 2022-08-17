@@ -1,10 +1,11 @@
 [package]
 name = "rustdtp"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["WKHAllen <wkhallen@gmail.com>"]
 license = "MIT"
 description = "Asynchronous cross-platform networking interfaces for Rust."
 repository = "https://github.com/WKHAllen/rustdtp"
+homepage = "https://wkhallen.com/dtp/"
 keywords = ["socket", "networking"]
 include = ["src/**/*", "LICENSE", "README.md"]
 edition = "2021"

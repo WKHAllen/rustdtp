@@ -1,24 +1,26 @@
 //! The server network interface.
 
-use crate::command_channel::*;
-use crate::crypto::*;
-use crate::event_stream::*;
-use crate::util::*;
-use rsa::pkcs8::EncodePublicKey;
-use serde::{de::DeserializeOwned, ser::Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+
+use rsa::pkcs8::EncodePublicKey;
+use serde::{de::DeserializeOwned, ser::Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, ToSocketAddrs};
 use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
 
+use crate::command_channel::*;
+use crate::crypto::*;
+use crate::event_stream::*;
+use crate::util::*;
+
 /// A command sent from the server handle to the background server task.
 pub enum ServerCommand<S>
-where
-    S: Serialize + Clone + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
 {
     Stop,
     Send { client_id: usize, data: S },
@@ -40,8 +42,8 @@ pub enum ServerCommandReturn {
 
 /// A command sent from the server background task to a client background task.
 pub enum ServerClientCommand<S>
-where
-    S: Serialize + Clone + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
 {
     Send { data: S },
     GetAddr,
@@ -70,25 +72,25 @@ pub enum ServerClientCommandReturn {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
-///             },
+///             }
 ///             ServerEvent::Disconnect { client_id } => {
 ///                 println!("Client with ID {} disconnected", client_id);
-///             },
+///             }
 ///             ServerEvent::Receive { client_id, data } => {
 ///                 println!("Client with ID {} sent: {}", client_id, data);
-///             },
+///             }
 ///             ServerEvent::Stop => {
 ///                 // No more events will be sent, and the loop will end
 ///                 println!("Server closed");
-///             },
+///             }
 ///         }
 ///     }
 /// }
 /// ```
 #[derive(Debug)]
 pub enum ServerEvent<R>
-where
-    R: DeserializeOwned + Send + 'static,
+    where
+        R: DeserializeOwned + Send + 'static,
 {
     Connect { client_id: usize },
     Disconnect { client_id: usize },
@@ -98,16 +100,16 @@ where
 
 /// A handle to the server.
 pub struct ServerHandle<S>
-where
-    S: Serialize + Clone + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
 {
     server_command_sender: CommandChannelSender<ServerCommand<S>, ServerCommandReturn>,
     server_task_handle: JoinHandle<io::Result<()>>,
 }
 
 impl<S> ServerHandle<S>
-where
-    S: Serialize + Clone + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
 {
     /// Stop the server, disconnect all clients, and shut down all network interfaces.
     ///
@@ -131,8 +133,8 @@ where
     ///                     server.stop().await.unwrap();
     ///                     break;
     ///                 }
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     ///
@@ -170,8 +172,8 @@ where
     ///             // When a client connects, send a greeting
     ///             ServerEvent::Connect { client_id } => {
     ///                 server.send(client_id, format!("Hello, client {}!", client_id)).await.unwrap();
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
@@ -204,8 +206,8 @@ where
     ///             // When a client connects, notify all clients
     ///             ServerEvent::Connect { client_id } => {
     ///                 server.send_all(format!("A new client with ID {} has joined!", client_id)).await.unwrap();
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
@@ -264,8 +266,8 @@ where
     ///             ServerEvent::Connect { client_id } => {
     ///                 let addr = server.get_client_addr(client_id).await.unwrap();
     ///                 println!("Client with ID {} connected from {}", client_id, addr);
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
@@ -301,8 +303,8 @@ where
     ///                     server.send(client_id, "Even numbers are not allowed".to_owned()).await.unwrap();
     ///                     server.remove_client(client_id).await.unwrap();
     ///                 }
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     ///
@@ -341,35 +343,35 @@ where
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
-///             },
+///             }
 ///             ServerEvent::Disconnect { client_id } => {
 ///                 println!("Client with ID {} disconnected", client_id);
-///             },
+///             }
 ///             ServerEvent::Receive { client_id, data } => {
 ///                 // Send back the length of the string
 ///                 server.send(client_id, data.len()).await.unwrap();
-///             },
+///             }
 ///             ServerEvent::Stop => {
 ///                 // No more events will be sent, and the loop will end
 ///                 println!("Server closed");
-///             },
+///             }
 ///         }
 ///     }
 /// }
 /// ```
 pub struct Server<S, R>
-where
-    S: Serialize + Clone + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
+        R: DeserializeOwned + Send + 'static,
 {
     phantom_send: PhantomData<S>,
     phantom_receive: PhantomData<R>,
 }
 
 impl<S, R> Server<S, R>
-where
-    S: Serialize + Clone + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    where
+        S: Serialize + Clone + Send + 'static,
+        R: DeserializeOwned + Send + 'static,
 {
     /// Start a socket server.
     ///
@@ -386,8 +388,8 @@ where
     /// }
     /// ```
     pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
-    where
-        A: ToSocketAddrs,
+        where
+            A: ToSocketAddrs,
     {
         // Server TCP listener
         let listener = TcpListener::bind(addr).await?;
@@ -805,7 +807,7 @@ where
                     }
                 }
 
-                io::Result::Ok(())
+                Ok(())
             };
 
             // Send a remove command to all clients

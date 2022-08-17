@@ -1,24 +1,26 @@
 //! The client network interface.
 
-use crate::command_channel::*;
-use crate::crypto::*;
-use crate::event_stream::*;
-use crate::util::*;
-use rsa::pkcs8::DecodePublicKey;
-use rsa::RsaPublicKey;
-use serde::{de::DeserializeOwned, ser::Serialize};
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+
+use rsa::pkcs8::DecodePublicKey;
+use rsa::RsaPublicKey;
+use serde::{de::DeserializeOwned, ser::Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
 
+use crate::command_channel::*;
+use crate::crypto::*;
+use crate::event_stream::*;
+use crate::util::*;
+
 /// A command sent from the client handle to the background client task.
 pub enum ClientCommand<S>
-where
-    S: Serialize + Send + 'static,
+    where
+        S: Serialize + Send + 'static,
 {
     Disconnect,
     Send { data: S },
@@ -49,19 +51,19 @@ pub enum ClientCommandReturn {
 ///         match event {
 ///             ClientEvent::Receive { data } => {
 ///                 println!("Server sent: {}", data);
-///             },
+///             }
 ///             ClientEvent::Disconnect => {
 ///                 // No more events will be sent, and the loop will end
 ///                 println!("Client disconnected");
-///             },
+///             }
 ///         }
 ///     }
 /// }
 /// ```
 #[derive(Debug)]
 pub enum ClientEvent<R>
-where
-    R: DeserializeOwned + Send + 'static,
+    where
+        R: DeserializeOwned + Send + 'static,
 {
     Receive { data: R },
     Disconnect,
@@ -69,16 +71,16 @@ where
 
 /// A handle to the client.
 pub struct ClientHandle<S>
-where
-    S: Serialize + Send + 'static,
+    where
+        S: Serialize + Send + 'static,
 {
     client_command_sender: CommandChannelSender<ClientCommand<S>, ClientCommandReturn>,
     client_task_handle: JoinHandle<io::Result<()>>,
 }
 
 impl<S> ClientHandle<S>
-where
-    S: Serialize + Send + 'static,
+    where
+        S: Serialize + Send + 'static,
 {
     /// Disconnect from the server.
     ///
@@ -101,8 +103,8 @@ where
     ///                     client.disconnect().await.unwrap();
     ///                     break;
     ///                 }
-    ///             },
-    ///             _ => {},  // Do nothing for other events
+    ///             }
+    ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
@@ -220,27 +222,27 @@ where
 ///             // Validate the response
 ///             println!("Received response from server: {}", data);
 ///             assert_eq!(data, msg.len());
-///         },
+///         }
 ///         event => {
 ///             // Unexpected response
 ///             panic!("expected to receive a response from the server, instead got {:?}", event);
-///         },
+///         }
 ///     }
 /// }
 /// ```
 pub struct Client<S, R>
-where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    where
+        S: Serialize + Send + 'static,
+        R: DeserializeOwned + Send + 'static,
 {
     phantom_send: PhantomData<S>,
     phantom_receive: PhantomData<R>,
 }
 
 impl<S, R> Client<S, R>
-where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    where
+        S: Serialize + Send + 'static,
+        R: DeserializeOwned + Send + 'static,
 {
     /// Connect to a socket server.
     ///
@@ -257,8 +259,8 @@ where
     /// }
     /// ```
     pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
-    where
-        A: ToSocketAddrs,
+        where
+            A: ToSocketAddrs,
     {
         // Client TCP stream
         let mut stream = TcpStream::connect(addr).await?;
@@ -489,7 +491,7 @@ where
                 // Send a disconnect event, ignoring send errors
                 if let Err(_e) = client_event_sender.send(ClientEvent::Disconnect).await {}
 
-                io::Result::Ok(())
+                Ok(())
             };
 
             // Return client loop result

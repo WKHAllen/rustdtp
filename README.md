@@ -2,7 +2,10 @@
 
 Asynchronous cross-platform networking interfaces for Rust.
 
-The two fundamental network objects this crate provides are the server and client. When starting a server or connecting via a client, the task will not block while it performs network operations in the background. Upon instantiation, both the server and client return handles that provide a mechanism for communicating with the background task, and instructing it to provide status information or halt network operations.
+## Data Transfer Protocol
+
+The Data Transfer Protocol (DTP) is a larger project to make ergonomic network programming available in any language.
+See the full project [here](https://wkhallen.com/dtp/).
 
 ## Creating a server
 
@@ -21,18 +24,18 @@ async fn main() {
         match event {
             ServerEvent::Connect { client_id } => {
                 println!("Client with ID {} connected", client_id);
-            },
+            }
             ServerEvent::Disconnect { client_id } => {
                 println!("Client with ID {} disconnected", client_id);
-            },
+            }
             ServerEvent::Receive { client_id, data } => {
                 // Send back the length of the string
                 server.send(client_id, data.len()).await.unwrap();
-            },
+            }
             ServerEvent::Stop => {
                 // No more events will be sent, and the loop will end
                 println!("Server closed");
-            },
+            }
         }
     }
 }
@@ -60,11 +63,11 @@ async fn main() {
             // Validate the response
             println!("Received response from server: {}", data);
             assert_eq!(data, msg.len());
-        },
+        }
         event => {
             // Unexpected response
             panic!("expected to receive a response from the server, instead got {:?}", event);
-        },
+        }
     }
 }
 ```
@@ -75,4 +78,5 @@ Note that in order to iterate over events, the `EventStreamExt` extension trait 
 
 ## Security
 
-Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
+Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key
+exchanges are performed using a 2048-bit RSA key-pair.

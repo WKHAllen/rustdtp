@@ -19,8 +19,8 @@ pub const RSA_KEY_BITS: usize = 2048;
 ///
 /// Returns a generic IO representation of the error.
 pub fn generic_io_error<T, E>(err: E) -> io::Result<T>
-where
-    E: Into<Box<dyn error::Error + Send + Sync>>,
+    where
+        E: Into<Box<dyn error::Error + Send + Sync>>,
 {
     Err(io::Error::new(io::ErrorKind::Other, err))
 }
@@ -31,8 +31,8 @@ where
 ///
 /// Returns the result converted into a generic IO result.
 pub fn into_generic_io_result<T, E>(value: Result<T, E>) -> io::Result<T>
-where
-    E: Into<Box<dyn error::Error + Send + Sync>>,
+    where
+        E: Into<Box<dyn error::Error + Send + Sync>>,
 {
     match value {
         Ok(val) => Ok(val),
@@ -49,7 +49,7 @@ pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
     let mut encoded_size = [0u8; LEN_SIZE];
 
     for i in 0..LEN_SIZE {
-        encoded_size[LEN_SIZE - i - 1] = u8::try_from(size % 256).unwrap();
+        encoded_size[LEN_SIZE - i - 1] = u8::try_from(size & 0xff).unwrap();
         size >>= 8;
     }
 
