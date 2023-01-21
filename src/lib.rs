@@ -102,6 +102,7 @@ mod tests {
     use std::time::Duration;
 
     use rand;
+    use serde::{Deserialize, Serialize};
 
     use util::*;
 
@@ -109,6 +110,7 @@ mod tests {
 
     /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;
+
     /// Default server address.
     const SERVER_ADDR: (&'static str, u16) = ("127.0.0.1", 0);
 
@@ -120,6 +122,14 @@ mod tests {
         () => {
             thread::sleep(Duration::from_millis(SLEEP_TIME))
         };
+    }
+
+    /// A custom type
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct Custom {
+        pub a: i32,
+        pub b: String,
+        pub c: Vec<String>,
     }
 
     /// Test the message size portion encoding.
@@ -154,6 +164,31 @@ mod tests {
             decode_message_size(&[255, 255, 255, 255, 255]),
             1099511627775
         );
+    }
+
+    /// Test crypto functions.
+    #[test]
+    fn test_crypto() {
+        let rsa_message = "Hello, RSA!";
+        let (public_key, private_key) = crypto::rsa_keys().unwrap();
+        let rsa_encrypted = crypto::rsa_encrypt(&public_key, rsa_message.as_bytes()).unwrap();
+        let rsa_decrypted = crypto::rsa_decrypt(&private_key, &rsa_encrypted).unwrap();
+        let rsa_decrypted_message = std::str::from_utf8(&rsa_decrypted).unwrap();
+        assert_eq!(rsa_decrypted_message, rsa_message);
+        assert_ne!(rsa_encrypted, rsa_message.as_bytes());
+
+        let aes_message = "Hello, AES!";
+        let key = crypto::aes_key();
+        let aes_encrypted = crypto::aes_encrypt(&key, aes_message.as_bytes()).unwrap();
+        let aes_decrypted = crypto::aes_decrypt(&key, &aes_encrypted).unwrap();
+        let aes_decrypted_message = std::str::from_utf8(&aes_decrypted).unwrap();
+        assert_eq!(aes_decrypted_message, aes_message);
+        assert_ne!(aes_encrypted, aes_message.as_bytes());
+
+        let encrypted_key = crypto::rsa_encrypt(&public_key, &key).unwrap();
+        let decrypted_key = crypto::rsa_decrypt(&private_key, &encrypted_key).unwrap();
+        assert_eq!(decrypted_key, key);
+        assert_ne!(encrypted_key, key);
     }
 
     /// Test server creation and serving.
@@ -366,6 +401,174 @@ mod tests {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
                 assert_eq!(data, large_msg_from_client);
+            }
+            event => panic!("expected receive event on server, instead got {:?}", event),
+        }
+        sleep!();
+
+        client.disconnect().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
+        assert!(matches!(disconnect_event, ClientEvent::Disconnect));
+        sleep!();
+
+        let client_disconnect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_disconnect_event,
+            ServerEvent::Disconnect { client_id: 0 }
+        ));
+        sleep!();
+
+        server.stop().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
+        assert!(matches!(stop_event, ServerEvent::Stop));
+        sleep!();
+
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
+        sleep!();
+    }
+
+    /// Test sending numerous messages
+    #[tokio::test]
+    async fn test_sending_numerous_messages() {
+        let (mut server, mut server_event) =
+            Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
+        sleep!();
+
+        let server_addr = server.get_addr().await.unwrap();
+        println!("Server address: {}", server_addr);
+        sleep!();
+
+        let (mut client, mut client_event) =
+            Client::<u16, u16>::connect(server_addr).await.unwrap();
+        sleep!();
+
+        let client_addr = client.get_addr().await.unwrap();
+        println!("Client address: {}", client_addr);
+        sleep!();
+
+        let client_connect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_connect_event,
+            ServerEvent::Connect { client_id: 0 }
+        ));
+        sleep!();
+
+        let num_server_messages: usize = (rand::random::<usize>() % 64) + 64;
+        let num_client_messages: usize = (rand::random::<usize>() % 128) + 128;
+        let server_messages: Vec<u16> = vec![rand::random::<u16>() % 1024; num_server_messages];
+        let client_messages: Vec<u16> = vec![rand::random::<u16>() % 1024; num_client_messages];
+        println!("Generated {} server messages", num_server_messages);
+        println!("Generated {} client messages", num_client_messages);
+
+        for &server_message in &server_messages {
+            client.send(server_message).await.unwrap();
+        }
+        for &client_message in &client_messages {
+            server.send_all(client_message).await.unwrap();
+        }
+        sleep!();
+
+        for &server_message in &server_messages {
+            let server_recv_event = server_event.next().await.unwrap();
+            match server_recv_event {
+                ServerEvent::Receive { client_id, data } => {
+                    assert_eq!(client_id, 0);
+                    assert_eq!(data, server_message);
+                }
+                event => panic!("expected receive event on server, instead got {:?}", event)
+            }
+        }
+
+        for &client_message in &client_messages {
+            let client_recv_event = client_event.next().await.unwrap();
+            match client_recv_event {
+                ClientEvent::Receive { data } => {
+                    assert_eq!(data, client_message);
+                }
+                event => panic!("expected receive event on client, instead got {:?}", event)
+            }
+        }
+
+        client.disconnect().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
+        assert!(matches!(disconnect_event, ClientEvent::Disconnect));
+        sleep!();
+
+        let client_disconnect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_disconnect_event,
+            ServerEvent::Disconnect { client_id: 0 }
+        ));
+        sleep!();
+
+        server.stop().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
+        assert!(matches!(stop_event, ServerEvent::Stop));
+        sleep!();
+
+        assert!(matches!(client_event.next().await, None));
+        assert!(matches!(server_event.next().await, None));
+        sleep!();
+    }
+
+    /// Test sending custom types
+    #[tokio::test]
+    async fn test_sending_custom_types() {
+        let (mut server, mut server_event) =
+            Server::<Custom, Custom>::start(SERVER_ADDR).await.unwrap();
+        sleep!();
+
+        let server_addr = server.get_addr().await.unwrap();
+        println!("Server address: {}", server_addr);
+        sleep!();
+
+        let (mut client, mut client_event) =
+            Client::<Custom, Custom>::connect(server_addr).await.unwrap();
+        sleep!();
+
+        let client_addr = client.get_addr().await.unwrap();
+        println!("Client address: {}", client_addr);
+        sleep!();
+
+        let client_connect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_connect_event,
+            ServerEvent::Connect { client_id: 0 }
+        ));
+        sleep!();
+
+        let server_message = Custom {
+            a: 123,
+            b: "Hello, custom server class!".to_owned(),
+            c: vec!["first server item".to_owned(), "second server item".to_owned()],
+        };
+        let client_message = Custom {
+            a: 456,
+            b: "Hello, custom client class!".to_owned(),
+            c: vec!["#1 client item".to_owned(), "client item #2".to_owned(), "(3) client item".to_owned()],
+        };
+
+        server.send_all(client_message.clone()).await.unwrap();
+        sleep!();
+
+        let client_recv_event_1 = client_event.next().await.unwrap();
+        match client_recv_event_1 {
+            ClientEvent::Receive { data } => {
+                assert_eq!(data, client_message);
+            }
+            event => panic!("expected receive event on client, instead got {:?}", event),
+        }
+        sleep!();
+
+        client.send(server_message.clone()).await.unwrap();
+        sleep!();
+
+        let server_recv_event = server_event.next().await.unwrap();
+        match server_recv_event {
+            ServerEvent::Receive { client_id, data } => {
+                assert_eq!(client_id, 0);
+                assert_eq!(data, server_message);
             }
             event => panic!("expected receive event on server, instead got {:?}", event),
         }

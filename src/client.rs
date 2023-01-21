@@ -301,7 +301,7 @@ impl<S, R> Client<S, R>
         // Generate AES key
         let aes_key = aes_key();
         // Encrypt AES key with RSA public key
-        let aes_key_encrypted = into_generic_io_result(rsa_encrypt(rsa_pub, &aes_key))?;
+        let aes_key_encrypted = into_generic_io_result(rsa_encrypt(&rsa_pub, &aes_key))?;
         // Create the buffer containing the AES key and its size
         let mut aes_key_buffer = encode_message_size(aes_key_encrypted.len()).to_vec();
         // Extend the buffer with the AES key

@@ -10,9 +10,6 @@ pub const LEN_SIZE: usize = 5;
 /// The size of a channel buffer.
 pub const CHANNEL_BUFFER_SIZE: usize = 100;
 
-/// The number of bits to use for an RSA key.
-pub const RSA_KEY_BITS: usize = 2048;
-
 /// Generate a generic IO error.
 ///
 /// `err`: the underlying error.

@@ -1,4 +1,4 @@
-# Rust Data Transfer Protocol
+# Data Transfer Protocol for Rust
 
 Asynchronous cross-platform networking interfaces for Rust.
 
@@ -6,6 +6,14 @@ Asynchronous cross-platform networking interfaces for Rust.
 
 The Data Transfer Protocol (DTP) is a larger project to make ergonomic network programming available in any language.
 See the full project [here](https://wkhallen.com/dtp/).
+
+## Installation
+
+Add the package in `Cargo.toml`:
+
+```toml
+rustdtp = "*"
+```
 
 ## Creating a server
 

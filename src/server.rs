@@ -428,7 +428,7 @@ impl<S, R> Server<S, R>
                             let (mut socket, _) = accept_value?;
 
                             // Generate RSA keys
-                            let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys(RSA_KEY_BITS))?;
+                            let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys())?;
                             // Convert the RSA public key into a string...
                             let rsa_pub_str = into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
                             // ...and then into bytes
@@ -479,7 +479,7 @@ impl<S, R> Server<S, R>
                             }
 
                             // Decrypt the AES key
-                            let aes_key_decrypted = into_generic_io_result(rsa_decrypt(rsa_priv, &aes_key_buffer))?;
+                            let aes_key_decrypted = into_generic_io_result(rsa_decrypt(&rsa_priv, &aes_key_buffer))?;
 
                             // Assert that the AES key is the correct size
                             let aes_key: [u8; 32] = match aes_key_decrypted.try_into() {
