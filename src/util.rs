@@ -8,7 +8,13 @@ use std::io;
 pub const LEN_SIZE: usize = 5;
 
 /// The size of a channel buffer.
-pub const CHANNEL_BUFFER_SIZE: usize = 100;
+pub const CHANNEL_BUFFER_SIZE: usize = 256;
+
+/// The maximum time in milliseconds to wait for data from a socket.
+pub const DATA_READ_TIMEOUT: u64 = 1000;
+
+/// The maximum time in milliseconds to wait for an initial handshake.
+pub const HANDSHAKE_TIMEOUT: u64 = 60000;
 
 /// Generate a generic IO error.
 ///
@@ -16,8 +22,8 @@ pub const CHANNEL_BUFFER_SIZE: usize = 100;
 ///
 /// Returns a generic IO representation of the error.
 pub fn generic_io_error<T, E>(err: E) -> io::Result<T>
-    where
-        E: Into<Box<dyn error::Error + Send + Sync>>,
+where
+    E: Into<Box<dyn error::Error + Send + Sync>>,
 {
     Err(io::Error::new(io::ErrorKind::Other, err))
 }
@@ -28,8 +34,8 @@ pub fn generic_io_error<T, E>(err: E) -> io::Result<T>
 ///
 /// Returns the result converted into a generic IO result.
 pub fn into_generic_io_result<T, E>(value: Result<T, E>) -> io::Result<T>
-    where
-        E: Into<Box<dyn error::Error + Send + Sync>>,
+where
+    E: Into<Box<dyn error::Error + Send + Sync>>,
 {
     match value {
         Ok(val) => Ok(val),

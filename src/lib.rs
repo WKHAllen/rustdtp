@@ -1,4 +1,4 @@
-//! # Rust Data Transfer Protocol
+//! # Data Transfer Protocol for Rust
 //!
 //! Asynchronous cross-platform networking interfaces for Rust.
 //!
@@ -93,6 +93,7 @@ mod command_channel;
 mod crypto;
 mod event_stream;
 mod server;
+mod timeout;
 mod util;
 
 /// Crate tests.
@@ -431,8 +432,7 @@ mod tests {
     /// Test sending numerous messages
     #[tokio::test]
     async fn test_sending_numerous_messages() {
-        let (mut server, mut server_event) =
-            Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_event) = Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
@@ -476,7 +476,7 @@ mod tests {
                     assert_eq!(client_id, 0);
                     assert_eq!(data, server_message);
                 }
-                event => panic!("expected receive event on server, instead got {:?}", event)
+                event => panic!("expected receive event on server, instead got {:?}", event),
             }
         }
 
@@ -486,7 +486,7 @@ mod tests {
                 ClientEvent::Receive { data } => {
                     assert_eq!(data, client_message);
                 }
-                event => panic!("expected receive event on client, instead got {:?}", event)
+                event => panic!("expected receive event on client, instead got {:?}", event),
             }
         }
 
@@ -523,8 +523,9 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
-            Client::<Custom, Custom>::connect(server_addr).await.unwrap();
+        let (mut client, mut client_event) = Client::<Custom, Custom>::connect(server_addr)
+            .await
+            .unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -541,12 +542,19 @@ mod tests {
         let server_message = Custom {
             a: 123,
             b: "Hello, custom server class!".to_owned(),
-            c: vec!["first server item".to_owned(), "second server item".to_owned()],
+            c: vec![
+                "first server item".to_owned(),
+                "second server item".to_owned(),
+            ],
         };
         let client_message = Custom {
             a: 456,
             b: "Hello, custom client class!".to_owned(),
-            c: vec!["#1 client item".to_owned(), "client item #2".to_owned(), "(3) client item".to_owned()],
+            c: vec![
+                "#1 client item".to_owned(),
+                "client item #2".to_owned(),
+                "(3) client item".to_owned(),
+            ],
         };
 
         server.send_all(client_message.clone()).await.unwrap();

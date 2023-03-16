@@ -1,5 +1,5 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::{Aead, NewAead};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use rsa::{PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey};
 
 /// The number of bits to use for an RSA key.
@@ -94,7 +94,8 @@ pub fn aes_decrypt(
     let aes_key = Key::from(*key);
     let cipher = Aes256Gcm::new(&aes_key);
     let (nonce_slice, ciphertext) = ciphertext_with_nonce.split_at(AES_NONCE_SIZE);
-    let nonce_slice_sized: [u8; AES_NONCE_SIZE] = nonce_slice.try_into().expect("incorrect nonce length");
+    let nonce_slice_sized: [u8; AES_NONCE_SIZE] =
+        nonce_slice.try_into().expect("incorrect nonce length");
     let nonce = Nonce::from(nonce_slice_sized);
     let plaintext = cipher.decrypt(&nonce, ciphertext.as_ref())?;
 
