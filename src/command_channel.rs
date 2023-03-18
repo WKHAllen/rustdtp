@@ -1,15 +1,18 @@
 use std::io;
-
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
 /// An error associated with a command channel.
 pub enum CommandChannelError<T> {
+    /// An error occurred when sending a command.
     SendCommandError(SendError<T>),
+    /// An error occurred when sending the return value of a command.
     SendCommandReturnError(SendError<T>),
+    /// The command channel is closed.
     ChannelClosed,
 }
 
 impl<T> CommandChannelError<T> {
+    /// Gets the message associated with a command channel error.
     pub fn message(&self) -> &'static str {
         "command channel closed"
     }
@@ -28,7 +31,9 @@ impl<T> From<CommandChannelError<T>> for io::Error {
 /// - `S`: the type representing the command.
 /// - `R`: the type representing the return value from the command.
 pub struct CommandChannelSender<S, R> {
+    /// The channel through which commands are sent.
     command_sender: Sender<S>,
+    /// The channel through which command return values are received.
     command_return_receiver: Receiver<R>,
 }
 
@@ -58,7 +63,9 @@ impl<S, R> CommandChannelSender<S, R> {
 /// - `S`: the type representing the command.
 /// - `R`: the type representing the return value from the command.
 pub struct CommandChannelReceiver<S, R> {
+    /// The channel through which commands are received.
     command_receiver: Receiver<S>,
+    /// The channel through which commands return values are sent.
     command_return_sender: Sender<R>,
 }
 

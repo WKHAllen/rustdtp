@@ -1,5 +1,3 @@
-//! Utilities for the crate.
-
 use std::convert::TryFrom;
 use std::error;
 use std::io;

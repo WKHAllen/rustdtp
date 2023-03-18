@@ -1,43 +1,51 @@
-//! The server network interface.
-
-use std::collections::HashMap;
-use std::io;
-use std::marker::PhantomData;
-use std::net::SocketAddr;
-
-use rsa::pkcs8::EncodePublicKey;
-use serde::{de::DeserializeOwned, ser::Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Sender};
-use tokio::task::JoinHandle;
-
 use crate::command_channel::*;
 use crate::crypto::*;
 use crate::event_stream::*;
 use crate::timeout::*;
 use crate::util::*;
+use rsa::pkcs8::EncodePublicKey;
+use serde::{de::DeserializeOwned, ser::Serialize};
+use std::collections::HashMap;
+use std::io;
+use std::marker::PhantomData;
+use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::task::JoinHandle;
 
 /// A command sent from the server handle to the background server task.
 pub enum ServerCommand<S>
 where
     S: Serialize + Clone + Send + 'static,
 {
+    /// Stop the server.
     Stop,
+    /// Send data to a client.
     Send { client_id: usize, data: S },
+    /// Send data to all clients.
     SendAll { data: S },
+    /// Get the local server address.
     GetAddr,
+    /// Get the address of a client.
     GetClientAddr { client_id: usize },
+    /// Disconnect a client from the server.
     RemoveClient { client_id: usize },
 }
 
 /// The return value of a command executed on the background server task.
 pub enum ServerCommandReturn {
+    /// Stop return value.
     Stop(io::Result<()>),
+    /// Sent data return value.
     Send(io::Result<()>),
+    /// Sent data to all return value.
     SendAll(io::Result<()>),
+    /// Local server address return value.
     GetAddr(io::Result<SocketAddr>),
+    /// Client address return value.
     GetClientAddr(io::Result<SocketAddr>),
+    /// Disconnect client return value.
     RemoveClient(io::Result<()>),
 }
 
@@ -46,15 +54,21 @@ pub enum ServerClientCommand<S>
 where
     S: Serialize + Clone + Send + 'static,
 {
+    /// Send data to the client.
     Send { data: S },
+    /// Get the address of the client.
     GetAddr,
+    /// Disconnect the client.
     Remove,
 }
 
 /// The return value of a command executed on a client background task.
 pub enum ServerClientCommandReturn {
+    /// Send data return value.
     Send(io::Result<()>),
+    /// Client address return value.
     GetAddr(io::Result<SocketAddr>),
+    /// Disconnect client return value.
     Remove(io::Result<()>),
 }
 
@@ -93,9 +107,13 @@ pub enum ServerEvent<R>
 where
     R: DeserializeOwned + Send + 'static,
 {
+    /// A client connected.
     Connect { client_id: usize },
+    /// A client disconnected.
     Disconnect { client_id: usize },
+    /// Data received from a client.
     Receive { client_id: usize, data: R },
+    /// Server stopped.
     Stop,
 }
 
@@ -104,7 +122,9 @@ pub struct ServerHandle<S>
 where
     S: Serialize + Clone + Send + 'static,
 {
+    /// The channel through which commands can be sent to the background task.
     server_command_sender: CommandChannelSender<ServerCommand<S>, ServerCommandReturn>,
+    /// The handle to the background task.
     server_task_handle: JoinHandle<io::Result<()>>,
 }
 
@@ -365,7 +385,9 @@ where
     S: Serialize + Clone + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
+    /// Phantom value for `S`.
     phantom_send: PhantomData<S>,
+    /// Phantom value for `R`.
     phantom_receive: PhantomData<R>,
 }
 
@@ -388,6 +410,8 @@ where
     ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
     /// }
     /// ```
+    ///
+    /// Neither the server handle nor the event receiver should be dropped until the server has been stopped. Prematurely dropping either one can cause unintended behavior.
     pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
     where
         A: ToSocketAddrs,

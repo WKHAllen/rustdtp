@@ -78,14 +78,6 @@
 #![crate_type = "lib"]
 #![crate_name = "rustdtp"]
 
-/// Types re-exported from the crate.
-pub use tokio_stream::StreamExt as EventStreamExt;
-
-/// Types exported from the crate.
-pub use client::{Client, ClientEvent, ClientHandle};
-pub use event_stream::EventStream;
-pub use server::{Server, ServerEvent, ServerHandle};
-
 mod client;
 mod command_channel;
 mod crypto;
@@ -94,18 +86,23 @@ mod server;
 mod timeout;
 mod util;
 
+/// Types re-exported from the crate.
+pub use tokio_stream::StreamExt as EventStreamExt;
+
+/// Types exported from the crate.
+pub use client::{Client, ClientEvent, ClientHandle};
+pub use event_stream::EventStream;
+pub use server::{Server, ServerEvent, ServerHandle};
+
 /// Crate tests.
 #[cfg(test)]
 mod tests {
-    use std::thread;
-    use std::time::Duration;
-
+    use super::*;
     use rand;
     use serde::{Deserialize, Serialize};
-
+    use std::thread;
+    use std::time::Duration;
     use util::*;
-
-    use super::*;
 
     /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;
@@ -123,7 +120,7 @@ mod tests {
         };
     }
 
-    /// A custom type
+    /// A custom type.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Custom {
         pub a: i32,

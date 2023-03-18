@@ -1,39 +1,43 @@
-//! The client network interface.
-
-use std::io;
-use std::marker::PhantomData;
-use std::net::SocketAddr;
-
-use rsa::pkcs8::DecodePublicKey;
-use rsa::RsaPublicKey;
-use serde::{de::DeserializeOwned, ser::Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Sender};
-use tokio::task::JoinHandle;
-
 use crate::command_channel::*;
 use crate::crypto::*;
 use crate::event_stream::*;
 use crate::timeout::*;
 use crate::util::*;
+use rsa::pkcs8::DecodePublicKey;
+use rsa::RsaPublicKey;
+use serde::{de::DeserializeOwned, ser::Serialize};
+use std::io;
+use std::marker::PhantomData;
+use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::task::JoinHandle;
 
 /// A command sent from the client handle to the background client task.
 pub enum ClientCommand<S>
 where
     S: Serialize + Send + 'static,
 {
+    /// Disconnect from the server.
     Disconnect,
+    /// Send data to the server.
     Send { data: S },
+    /// Get the local client address.
     GetAddr,
+    /// Get the server's address.
     GetServerAddr,
 }
 
 /// The return value of a command executed on the background client task.
 pub enum ClientCommandReturn {
+    /// Disconnect return value.
     Disconnect(io::Result<()>),
+    /// Sent data return value.
     Send(io::Result<()>),
+    /// Local client address return value.
     GetAddr(io::Result<SocketAddr>),
+    /// Server address return value.
     GetServerAddr(io::Result<SocketAddr>),
 }
 
@@ -66,7 +70,9 @@ pub enum ClientEvent<R>
 where
     R: DeserializeOwned + Send + 'static,
 {
+    /// Data received from the server.
     Receive { data: R },
+    /// Disconnected from the server.
     Disconnect,
 }
 
@@ -75,7 +81,9 @@ pub struct ClientHandle<S>
 where
     S: Serialize + Send + 'static,
 {
+    /// The channel through which commands can be sent to the background task.
     client_command_sender: CommandChannelSender<ClientCommand<S>, ClientCommandReturn>,
+    /// The handle to the background task.
     client_task_handle: JoinHandle<io::Result<()>>,
 }
 
@@ -236,7 +244,9 @@ where
     S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
+    /// Phantom value for `S`.
     phantom_send: PhantomData<S>,
+    /// Phantom value for `R`.
     phantom_receive: PhantomData<R>,
 }
 
@@ -259,6 +269,8 @@ where
     ///     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
     /// }
     /// ```
+    ///
+    /// Neither the client handle nor the event receiver should be dropped until the client has disconnected. Prematurely dropping either one can cause unintended behavior.
     pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
     where
         A: ToSocketAddrs,
