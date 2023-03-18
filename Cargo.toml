@@ -13,7 +13,8 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.26", features = ["full"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
-async-std = { version = "1.12.0", optional = true }
+async-std = { version = "1.12.0", features = ["attributes"], optional = true }
+futures = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = "0.8.5"
@@ -26,5 +27,5 @@ rustdtp = { path = ".", features = ["rt-tokio", "rt-async-std", "rt-std"] }
 
 [features]
 rt-tokio = ["dep:tokio", "dep:tokio-stream"]
-rt-async-std = ["dep:async-std"]
+rt-async-std = ["dep:async-std", "dep:futures"]
 rt-std = []
