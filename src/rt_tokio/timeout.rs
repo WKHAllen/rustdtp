@@ -15,7 +15,7 @@ macro_rules! timeout {
 /// Attempt to await reading from a socket with the default data read timeout.
 macro_rules! data_read_timeout {
     ($value:expr) => {
-        $crate::timeout::timeout!(
+        super::timeout::timeout!(
             $value,
             $crate::util::DATA_READ_TIMEOUT,
             "timed out waiting for data from socket"
@@ -26,7 +26,7 @@ macro_rules! data_read_timeout {
 /// Attempt to await performing a handshake with the default handshake timeout.
 macro_rules! handshake_timeout {
     ($value:expr) => {
-        $crate::timeout::timeout!(
+        super::timeout::timeout!(
             $value,
             $crate::util::HANDSHAKE_TIMEOUT,
             "timed out waiting for handshake"
@@ -34,6 +34,6 @@ macro_rules! handshake_timeout {
     };
 }
 
-pub(crate) use data_read_timeout;
-pub(crate) use handshake_timeout;
-pub(crate) use timeout;
+pub(super) use data_read_timeout;
+pub(super) use handshake_timeout;
+pub(super) use timeout;
