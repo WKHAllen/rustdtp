@@ -103,7 +103,7 @@ pub enum ServerClientCommandReturn {
 ///     }
 /// }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ServerEvent<R>
 where
     R: DeserializeOwned + Send + 'static,
