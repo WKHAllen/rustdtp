@@ -525,14 +525,11 @@ where
                         // Process the command
                         match client_command {
                             ServerClientCommand::Send { data } => {
-                                let value = {
+                                let value = 'val: {
                                     // Serialize the data
-                                    let data_buffer = serde_json::to_vec(&data)?;
+                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = match aes_encrypt(&aes_key, &data_buffer) {
-                                        Ok(val) => Ok(val),
-                                        Err(e) => generic_io_error(format!("failed to encrypt data: {}", e)),
-                                    }?;
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -544,9 +541,9 @@ where
                                     buffer.extend(&encrypted_data_buffer);
 
                                     // Write the data to the client socket
-                                    let n = socket.write(&buffer).await?;
+                                    let n = break_on_err!(socket.write(&buffer).await, 'val);
                                     // Flush the stream
-                                    socket.flush().await?;
+                                    break_on_err!(socket.flush().await, 'val);
 
                                     // If there were no bytes written, or if there were fewer
                                     // bytes written than there should have been, close the
@@ -816,26 +813,22 @@ where
                                 if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::Send(value)).await {}
                             },
                             ServerCommand::SendAll { data } => {
-                                let value = {
-                                    for (_client_id, client_command_sender) in client_command_senders.iter_mut() {
-                                        let data_clone = data.clone();
+                                for (_client_id, client_command_sender) in client_command_senders.iter_mut() {
+                                    let data_clone = data.clone();
 
-                                        match client_command_sender.send_command(ServerClientCommand::Send { data: data_clone }).await {
-                                            Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                            Err(_e) => {
-                                                // The channel is closed, and the client has probably been
-                                                // disconnected, so the error can be ignored
-                                                Ok(())
-                                            },
-                                        }?;
-                                    };
-
-                                    Ok(())
+                                    match client_command_sender.send_command(ServerClientCommand::Send { data: data_clone }).await {
+                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
+                                        Err(_e) => {
+                                            // The channel is closed, and the client has probably been
+                                            // disconnected, so the error can be ignored
+                                            Ok(())
+                                        },
+                                    }.unwrap();
                                 };
 
                                 // If a command fails to send, the client has probably disconnected,
                                 // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::SendAll(value)).await {}
+                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::SendAll(Ok(()))).await {}
                             },
                             ServerCommand::GetAddr => {
                                 // Get the server listener's address

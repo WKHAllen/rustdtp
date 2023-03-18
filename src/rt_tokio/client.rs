@@ -453,14 +453,11 @@ where
                                 break;
                             },
                             ClientCommand::Send { data } => {
-                                let value = {
+                                let value = 'val: {
                                     // Serialize the data
-                                    let data_buffer = serde_json::to_vec(&data)?;
+                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = match aes_encrypt(&aes_key, &data_buffer) {
-                                        Ok(val) => Ok(val),
-                                        Err(e) => generic_io_error(format!("failed to encrypt data: {}", e)),
-                                    }?;
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -472,9 +469,9 @@ where
                                     buffer.extend(&encrypted_data_buffer);
 
                                     // Write the data to the stream
-                                    let n = stream.write(&buffer).await?;
+                                    let n = break_on_err!(stream.write(&buffer).await, 'val);
                                     // Flush the stream
-                                    stream.flush().await?;
+                                    break_on_err!(stream.flush().await, 'val);
 
                                     // If there were no bytes written, or if there were fewer
                                     // bytes written than there should have been, close the
@@ -482,7 +479,7 @@ where
                                     if n != buffer.len() {
                                         generic_io_error("failed to write data to stream")
                                     } else {
-                                        io::Result::Ok(())
+                                        Ok(())
                                     }
                                 };
 
