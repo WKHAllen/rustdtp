@@ -61,7 +61,7 @@ pub enum ServerClientCommandReturn {
 /// An event from the server.
 ///
 /// ```no_run
-/// use rustdtp::{Server, ServerEvent, EventStreamExt};
+/// use rustdtp::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -117,7 +117,7 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting clients.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -160,7 +160,7 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -194,7 +194,7 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -226,7 +226,7 @@ where
     /// Returns a result containing the address the server is listening on, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -253,7 +253,7 @@ where
     /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -287,7 +287,7 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting the client, or if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -332,7 +332,7 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::{Server, ServerEvent, EventStreamExt};
+/// use rustdtp::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -381,7 +381,7 @@ where
     /// Returns a result containing a handle to the server and a channel from which to receive server events, or the error variant if an error occurred while starting the server.
     ///
     /// ```no_run
-    /// use rustdtp::{Server, ServerEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {

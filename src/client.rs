@@ -40,7 +40,7 @@ pub enum ClientCommandReturn {
 /// An event from the client.
 ///
 /// ```no_run
-/// use rustdtp::{Client, ClientEvent, EventStreamExt};
+/// use rustdtp::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -88,7 +88,7 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent, EventStreamExt};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -126,7 +126,7 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -150,7 +150,7 @@ where
     /// Returns a result containing the address of the socket the client is connected on, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -175,7 +175,7 @@ where
     /// Returns a result containing the address of the server, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -206,7 +206,7 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating a server, the types should be swapped, since the client's send type will be the server's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::{Client, ClientEvent, EventStreamExt};
+/// use rustdtp::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -252,7 +252,7 @@ where
     /// Returns a result containing a handle to the client and a channel from which to receive client events, or the error variant if an error occurred while connecting to the server.
     ///
     /// ```no_run
-    /// use rustdtp::{Client, ClientEvent};
+    /// use rustdtp::*;
     ///
     /// #[tokio::main]
     /// async fn main() {

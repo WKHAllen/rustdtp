@@ -2,14 +2,12 @@
 //!
 //! Asynchronous cross-platform networking interfaces for Rust.
 //!
-//! The two fundamental network objects this crate provides are the server and client. When starting a server or connecting via a client, the task will not block while it performs network operations in the background. Upon instantiation, both the server and client return handles that provide a mechanism for communicating with the background task, and instructing it to provide status information or halt network operations.
-//!
 //! ## Creating a server
 //!
 //! A server can be built using the `Server` implementation:
 //!
 //! ```no_run
-//! use rustdtp::{Server, ServerEvent, EventStreamExt};
+//! use rustdtp::*;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -43,7 +41,7 @@
 //! A client can be built using the `Client` implementation:
 //!
 //! ```no_run
-//! use rustdtp::{Client, ClientEvent, EventStreamExt};
+//! use rustdtp::*;
 //!
 //! #[tokio::main]
 //! async fn main() {

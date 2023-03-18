@@ -20,7 +20,7 @@ rustdtp = "*"
 A server can be built using the `Server` implementation:
 
 ```rust
-use rustdtp::{Server, ServerEvent, EventStreamExt};
+use rustdtp::*;
 
 #[tokio::main]
 async fn main() {
@@ -54,7 +54,7 @@ async fn main() {
 A client can be built using the `Client` implementation:
 
 ```rust
-use rustdtp::{Client, ClientEvent, EventStreamExt};
+use rustdtp::*;
 
 #[tokio::main]
 async fn main() {
