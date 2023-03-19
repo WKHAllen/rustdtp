@@ -1,6 +1,28 @@
 //! # Data Transfer Protocol for Rust
 //!
-//! Asynchronous cross-platform networking interfaces for Rust.
+//! Cross-platform networking interfaces for Rust.
+//!
+//! ## Data Transfer Protocol
+//!
+//! The Data Transfer Protocol (DTP) is a larger project to make ergonomic network programming available in any language. See the full project [here](https://wkhallen.com/dtp/).
+//!
+//! ## Installation
+//!
+//! Add the package in `Cargo.toml`:
+//!
+//! ```toml
+//! rustdtp = { version = "*", features = ["rt-tokio"] }
+//! ```
+//!
+//! ## Selecting a runtime
+//!
+//! The protocol can be used with both the [`tokio`](https://github.com/tokio-rs/tokio) and [`async-std`](https://github.com/async-rs/async-std) runtimes, as well as in purely synchronous environments. Each implementation is gated behind a feature:
+//!
+//! - `rt-tokio`: the tokio implementation, available as `rustdtp::rt_tokio`
+//! - `rt-async-std`: the async-std implementation, available as `rustdtp::rt_async_std`
+//! - `rt-sync`: the synchronous implementation, available as `rustdtp::rt_sync`
+//!
+//! Multiple features can be activated at the same time, though most times this is not useful.
 //!
 //! ## Creating a server
 //!
@@ -67,16 +89,10 @@
 //! }
 //! ```
 //!
-//! ## Event iteration
-//!
-//! Note that in order to iterate over events, the `EventStreamExt` extension trait needs to be in scope.
-//!
 //! ## Security
 //!
 //! Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
 
-#![crate_type = "lib"]
-#![crate_name = "rustdtp"]
 #![forbid(unsafe_code)]
 
 mod crypto;
