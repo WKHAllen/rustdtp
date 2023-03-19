@@ -12,7 +12,7 @@
 //! #[async_std::main]
 //! async fn main() {
 //!     // Create a server that receives strings and returns the length of each string
-//!     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+//!     let (server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
 //!
 //!     // Iterate over events
 //!     while let Some(event) = server_event.next().await {
@@ -46,7 +46,7 @@
 //! #[async_std::main]
 //! async fn main() {
 //!     // Create a client that sends a message to the server and receives the length of the message
-//!     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+//!     let (client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
 //!
 //!     // Send a message to the server
 //!     let msg = "Hello, server!".to_owned();
@@ -89,8 +89,6 @@ mod tests {
     use crate::util::*;
     use rand;
     use serde::{Deserialize, Serialize};
-    use std::thread;
-    use std::time::Duration;
 
     /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;
@@ -100,11 +98,11 @@ mod tests {
 
     /// Sleep for a desired duration.
     macro_rules! sleep {
-        ($x:expr) => {
-            thread::sleep(Duration::from_millis($x))
-        };
         () => {
-            thread::sleep(Duration::from_millis(SLEEP_TIME))
+            ::async_std::task::sleep(::std::time::Duration::from_millis(SLEEP_TIME)).await
+        };
+        ($x:expr) => {
+            ::async_std::task::sleep(::std::time::Duration::from_millis($x)).await
         };
     }
 
@@ -178,7 +176,7 @@ mod tests {
     /// Test server creation and serving.
     #[async_std::test]
     async fn test_server_serve() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         println!("Server address: {}", server.get_addr().await.unwrap());
@@ -196,14 +194,14 @@ mod tests {
     /// Test getting server and client addresses.
     #[async_std::test]
     async fn test_addresses() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -252,15 +250,14 @@ mod tests {
     /// Test sending messages between server and client.
     #[async_std::test]
     async fn test_send() {
-        let (mut server, mut server_event) =
-            Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
+        let (client, mut client_event) =
             Client::<String, usize>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -337,16 +334,14 @@ mod tests {
     /// Test sending large random messages between server and client.
     #[async_std::test]
     async fn test_large_send() {
-        let (mut server, mut server_event) =
-            Server::<u128, u128>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<u128, u128>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
-            Client::<u128, u128>::connect(server_addr).await.unwrap();
+        let (client, mut client_event) = Client::<u128, u128>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -415,15 +410,14 @@ mod tests {
     /// Test sending numerous messages
     #[async_std::test]
     async fn test_sending_numerous_messages() {
-        let (mut server, mut server_event) = Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
-            Client::<u16, u16>::connect(server_addr).await.unwrap();
+        let (client, mut client_event) = Client::<u16, u16>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -498,7 +492,7 @@ mod tests {
     /// Test sending custom types
     #[async_std::test]
     async fn test_sending_custom_types() {
-        let (mut server, mut server_event) =
+        let (server, mut server_event) =
             Server::<Custom, Custom>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
@@ -506,7 +500,7 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<Custom, Custom>::connect(server_addr)
+        let (client, mut client_event) = Client::<Custom, Custom>::connect(server_addr)
             .await
             .unwrap();
         sleep!();
@@ -590,15 +584,14 @@ mod tests {
     /// Test having multiple clients connected, and process events from them individually.
     #[async_std::test]
     async fn test_multiple_clients() {
-        let (mut server, mut server_event) =
-            Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client_1, mut client_event_1) =
+        let (client_1, mut client_event_1) =
             Client::<String, usize>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -623,7 +616,7 @@ mod tests {
         );
         sleep!();
 
-        let (mut client_2, mut client_event_2) =
+        let (client_2, mut client_event_2) =
             Client::<String, usize>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -756,14 +749,14 @@ mod tests {
     /// Test removing a client from the server.
     #[async_std::test]
     async fn test_remove_client() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -804,14 +797,14 @@ mod tests {
     /// Test stopping a server while a client is connected.
     #[async_std::test]
     async fn test_stop_server_while_client_connected() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();

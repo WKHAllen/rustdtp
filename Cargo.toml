@@ -23,9 +23,9 @@ aes-gcm = "0.10.1"
 sha2 = "0.10.6"
 
 [dev-dependencies]
-rustdtp = { path = ".", features = ["rt-tokio", "rt-async-std", "rt-std"] }
+rustdtp = { path = ".", features = ["rt-tokio", "rt-async-std", "rt-sync"] }
 
 [features]
 rt-tokio = ["dep:tokio", "dep:tokio-stream"]
 rt-async-std = ["dep:async-std", "dep:futures"]
-rt-std = []
+rt-sync = []

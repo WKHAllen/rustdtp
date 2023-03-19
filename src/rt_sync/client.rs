@@ -1,19 +1,17 @@
 use super::command_channel::*;
-use super::event_stream::*;
-use super::timeout::*;
+use super::event_iter::*;
 use crate::crypto::*;
 use crate::util::*;
-use async_std::channel::{bounded, Sender};
-use async_std::net::{TcpStream, ToSocketAddrs};
-use async_std::task::JoinHandle;
-use futures::future::FutureExt;
-use futures::{AsyncReadExt, AsyncWriteExt};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
-use std::io;
+use std::io::{self, Read, Write};
 use std::marker::PhantomData;
-use std::net::{Shutdown, SocketAddr};
+use std::net::SocketAddr;
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::{channel, Sender};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 /// A command sent from the client handle to the background client task.
 pub enum ClientCommand<S>
@@ -45,15 +43,14 @@ pub enum ClientCommandReturn {
 /// An event from the client.
 ///
 /// ```no_run
-/// use rustdtp::rt_async_std::*;
+/// use rustdtp::rt_sync::*;
 ///
-/// #[async_std::main]
-/// async fn main() {
+/// fn main() {
 ///     // Create the client
-///     let (client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+///     let (client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = client_event.next().await {
+///     while let Some(event) = client_event.next() {
 ///         match event {
 ///             ClientEvent::Receive { data } => {
 ///                 println!("Server sent: {}", data);
@@ -97,20 +94,19 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the client
-    ///     let (client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).unwrap();
     ///
     ///     // Wait for events until the server requests the client leave
-    ///     while let Some(event) = client_event.next().await {
+    ///     while let Some(event) = client_event.next() {
     ///         match event {
     ///             ClientEvent::Receive { data } => {
     ///                 if data.as_str() == "Kindly leave" {
     ///                     println!("Client disconnect requested");
-    ///                     client.disconnect().await.unwrap();
+    ///                     client.disconnect().unwrap();
     ///                     break;
     ///                 }
     ///             }
@@ -119,12 +115,11 @@ where
     ///     }
     /// }
     /// ```
-    pub async fn disconnect(self) -> io::Result<()> {
+    pub fn disconnect(self) -> io::Result<()> {
         let value = self
             .client_command_sender
-            .send_command(ClientCommand::Disconnect)
-            .await?;
-        self.client_task_handle.await?;
+            .send_command(ClientCommand::Disconnect)?;
+        self.client_task_handle.join().unwrap()?;
         unwrap_enum!(value, ClientCommandReturn::Disconnect)
     }
 
@@ -135,22 +130,20 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the client
-    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).unwrap();
     ///
     ///     // Send a greeting to the server upon connecting
-    ///     client.send("Hello, server!".to_owned()).await.unwrap();
+    ///     client.send("Hello, server!".to_owned()).unwrap();
     /// }
     /// ```
-    pub async fn send(&self, data: S) -> io::Result<()> {
+    pub fn send(&self, data: S) -> io::Result<()> {
         let value = self
             .client_command_sender
-            .send_command(ClientCommand::Send { data })
-            .await?;
+            .send_command(ClientCommand::Send { data })?;
         unwrap_enum!(value, ClientCommandReturn::Send)
     }
 
@@ -159,23 +152,21 @@ where
     /// Returns a result containing the address of the socket the client is connected on, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the client
-    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).unwrap();
     ///
     ///     // Get the client address
-    ///     let addr = client.get_addr().await.unwrap();
+    ///     let addr = client.get_addr().unwrap();
     ///     println!("Client connected on {}", addr);
     /// }
     /// ```
-    pub async fn get_addr(&self) -> io::Result<SocketAddr> {
+    pub fn get_addr(&self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
-            .send_command(ClientCommand::GetAddr)
-            .await?;
+            .send_command(ClientCommand::GetAddr)?;
         unwrap_enum!(value, ClientCommandReturn::GetAddr)
     }
 
@@ -184,23 +175,21 @@ where
     /// Returns a result containing the address of the server, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the client
-    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).unwrap();
     ///
     ///     // Get the server address
-    ///     let addr = client.get_server_addr().await.unwrap();
+    ///     let addr = client.get_server_addr().unwrap();
     ///     println!("Server address: {}", addr);
     /// }
     /// ```
-    pub async fn get_server_addr(&self) -> io::Result<SocketAddr> {
+    pub fn get_server_addr(&self) -> io::Result<SocketAddr> {
         let value = self
             .client_command_sender
-            .send_command(ClientCommand::GetServerAddr)
-            .await?;
+            .send_command(ClientCommand::GetServerAddr)?;
         unwrap_enum!(value, ClientCommandReturn::GetServerAddr)
     }
 }
@@ -215,19 +204,18 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating a server, the types should be swapped, since the client's send type will be the server's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::rt_async_std::*;
+/// use rustdtp::rt_sync::*;
 ///
-/// #[async_std::main]
-/// async fn main() {
+/// fn main() {
 ///     // Create a client that sends a message to the server and receives the length of the message
-///     let (client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+///     let (client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).unwrap();
 ///
 ///     // Send a message to the server
 ///     let msg = "Hello, server!".to_owned();
-///     client.send(msg.clone()).await.unwrap();
+///     client.send(msg.clone()).unwrap();
 ///
 ///     // Receive the response
-///     match client_event.next().await.unwrap() {
+///     match client_event.next().unwrap() {
 ///         ClientEvent::Receive { data } => {
 ///             // Validate the response
 ///             println!("Received response from server: {}", data);
@@ -263,28 +251,31 @@ where
     /// Returns a result containing a handle to the client and a channel from which to receive client events, or the error variant if an error occurred while connecting to the server.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
-    ///     let (client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    /// fn main() {
+    ///     let (client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).unwrap();
     /// }
     /// ```
     ///
     /// Neither the client handle nor the event receiver should be dropped until the client has disconnected. Prematurely dropping either one can cause unintended behavior.
-    pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
+    pub fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventIter<ClientEvent<R>>)>
     where
         A: ToSocketAddrs,
     {
         // Client TCP stream
-        let mut stream = TcpStream::connect(addr).await?;
+        let mut stream = TcpStream::connect(addr)?;
 
         // Buffer in which to receive the size portion of the RSA public key
         let mut rsa_pub_size_buffer = [0; LEN_SIZE];
+
+        // Set the stream to blocking mode
+        stream.set_nonblocking(false)?;
+        // Set the stream timeout
+        stream.set_read_timeout(Some(Duration::from_millis(HANDSHAKE_TIMEOUT)))?;
+
         // Read size portion of RSA public key
-        let n_size = handshake_timeout! {
-            stream.read(&mut rsa_pub_size_buffer)
-        }??;
+        let n_size = stream.read(&mut rsa_pub_size_buffer)?;
 
         // If there were no bytes read, or if there were fewer bytes read than there
         // should have been, close the stream and exit
@@ -298,11 +289,12 @@ where
         // Initialize the buffer for the RSA public key
         let mut rsa_pub_buffer = vec![0; rsa_pub_size];
 
+        // Set the stream timeout
+        stream.set_read_timeout(Some(Duration::from_millis(DATA_READ_TIMEOUT)))?;
+
         // Read the RSA public key portion from the stream, returning an error if the
         // stream could not be read
-        let n_rsa_pub = data_read_timeout! {
-            stream.read(&mut rsa_pub_buffer)
-        }??;
+        let n_rsa_pub = stream.read(&mut rsa_pub_buffer)?;
 
         // If there were no bytes read, or if there were fewer bytes read than there
         // should have been, close the stream and exit
@@ -325,9 +317,9 @@ where
         // Extend the buffer with the AES key
         aes_key_buffer.extend(aes_key_encrypted);
         // Send the encrypted AES key to the server
-        let n = stream.write(&aes_key_buffer).await?;
+        let n = stream.write(&aes_key_buffer)?;
         // Flush the stream
-        stream.flush().await?;
+        stream.flush()?;
 
         // If there were no bytes written, or if there were fewer
         // bytes written than there should have been, close the
@@ -340,15 +332,17 @@ where
         // Channels for sending commands from the client handle to the background client task
         let (client_command_sender, client_command_receiver) = command_channel();
         // Channels for sending event notifications from the background client task
-        let (client_event_sender, client_event_receiver) = bounded(CHANNEL_BUFFER_SIZE);
+        let (client_event_sender, client_event_receiver) = channel();
 
         // Start the background client task, saving the join handle for when the client disconnects
-        let client_task_handle = async_std::task::spawn(client_loop(
-            stream,
-            aes_key,
-            client_event_sender,
-            client_command_receiver,
-        ));
+        let client_task_handle = thread::spawn(move || {
+            client_loop(
+                stream,
+                aes_key,
+                client_event_sender,
+                client_command_receiver,
+            )
+        });
 
         // Create a handle for the client
         let client_handle = ClientHandle {
@@ -357,14 +351,14 @@ where
         };
 
         // Create an event stream for the client
-        let client_event_stream = EventStream::new(client_event_receiver);
+        let client_event_stream = EventIter::new(client_event_receiver);
 
         Ok((client_handle, client_event_stream))
     }
 }
 
 /// The client loop. Handles received data and commands.
-async fn client_loop<S, R>(
+fn client_loop<S, R>(
     mut stream: TcpStream,
     aes_key: [u8; AES_KEY_SIZE],
     client_event_sender: Sender<ClientEvent<R>>,
@@ -377,16 +371,19 @@ where
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
 
+    // Set the stream to non-blocking mode
+    stream.set_nonblocking(true)?;
+    // Set the stream timeout
+    stream.set_read_timeout(Some(Duration::from_millis(DATA_READ_TIMEOUT)))?;
+
     // Client loop
     loop {
         // Await messages from the server
         // and commands from the client handle
-        futures::select! {
-            // Read the size portion from the stream
-            read_value = stream.read(&mut size_buffer).fuse() => {
-                // Return an error if the stream could not be read
-                let n_size = read_value?;
 
+        // Read the size portion from the stream
+        match stream.read(&mut size_buffer) {
+            Ok(n_size) => {
                 // If there were no bytes read, or if there were fewer bytes read than there
                 // should have been, close the stream
                 if n_size != LEN_SIZE {
@@ -399,11 +396,12 @@ where
                 // Initialize the buffer for the data portion of the message
                 let mut encrypted_data_buffer = vec![0; encrypted_data_size];
 
+                // Set the stream to blocking mode
+                stream.set_nonblocking(false)?;
+
                 // Read the data portion from the client stream, returning an error if the
                 // stream could not be read
-                let n_data = data_read_timeout! {
-                    stream.read(&mut encrypted_data_buffer)
-                }??;
+                let n_data = stream.read(&mut encrypted_data_buffer)?;
 
                 // If there were no bytes read, or if there were fewer bytes read than there
                 // should have been, close the stream
@@ -422,7 +420,7 @@ where
                 if let Ok(data) = serde_json::from_slice(&data_buffer) {
                     // Send an event to note that a piece of data has been received from
                     // the server
-                    if let Err(_e) = client_event_sender.send(ClientEvent::Receive { data }).await {
+                    if let Err(_e) = client_event_sender.send(ClientEvent::Receive { data }) {
                         // Sending failed, disconnect
                         stream.shutdown(Shutdown::Both)?;
                         break;
@@ -432,109 +430,130 @@ where
                     stream.shutdown(Shutdown::Both)?;
                     break;
                 }
+
+                // Set the stream back to non-blocking mode
+                stream.set_nonblocking(true)?;
+
+                Ok(())
             }
-            // Process a command from the client handle
-            command_value = client_command_receiver.recv_command().fuse() => {
-                // Handle the command, or lack thereof if the channel is closed
-                match command_value {
-                    Ok(command) => {
-                        match command {
-                            ClientCommand::Disconnect => {
-                                // Disconnect from the server
-                                let value = stream.shutdown(Shutdown::Both);
+            Err(ref e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }?;
 
-                                // If a command fails to send, the client has already disconnected,
-                                // and the error can be ignored.
-                                // It should be noted that this is not where the disconnect method actually returns
-                                // its `Result`. This immediately returns with an `Ok` status. The real return
-                                // value is the `Result` returned from the client task join handle.
-                                if let Ok(_) = client_command_receiver.command_return(ClientCommandReturn::Disconnect(value)).await {}
+        // Process a command from the client handle
+        match client_command_receiver.try_recv_command() {
+            // Handle the command, or lack thereof if the channel is closed
+            Ok(client_command_value) => {
+                if let Some(command) = client_command_value {
+                    match command {
+                        ClientCommand::Disconnect => {
+                            // Disconnect from the server
+                            let value = stream.shutdown(Shutdown::Both);
 
-                                // Break the client loop
-                                break;
-                            },
-                            ClientCommand::Send { data } => {
-                                let value = 'val: {
-                                    // Serialize the data
-                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
-                                    // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
-                                    // Encode the message size to a buffer
-                                    let size_buffer = encode_message_size(encrypted_data_buffer.len());
+                            // If a command fails to send, the client has already disconnected,
+                            // and the error can be ignored.
+                            // It should be noted that this is not where the disconnect method actually returns
+                            // its `Result`. This immediately returns with an `Ok` status. The real return
+                            // value is the `Result` returned from the client task join handle.
+                            if let Ok(_) = client_command_receiver
+                                .command_return(ClientCommandReturn::Disconnect(value))
+                            {
+                            }
 
-                                    // Initialize the message buffer
-                                    let mut buffer = vec![];
-                                    // Extend the buffer to contain the payload size
-                                    buffer.extend_from_slice(&size_buffer);
-                                    // Extend the buffer to contain the payload data
-                                    buffer.extend(&encrypted_data_buffer);
-
-                                    // Write the data to the stream
-                                    let n = break_on_err!(stream.write(&buffer).await, 'val);
-                                    // Flush the stream
-                                    break_on_err!(stream.flush().await, 'val);
-
-                                    // If there were no bytes written, or if there were fewer
-                                    // bytes written than there should have been, close the
-                                    // stream
-                                    if n != buffer.len() {
-                                        generic_io_error("failed to write data to stream")
-                                    } else {
-                                        Ok(())
-                                    }
-                                };
-
-                                let error_occurred = value.is_err();
-
-                                // Return the status of the send operation
-                                if let Err(_e) = client_command_receiver.command_return(ClientCommandReturn::Send(value)).await {
-                                    // Channel is closed, disconnect from the server
-                                    stream.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-
-                                // If the send failed, disconnect from the server
-                                if error_occurred {
-                                    stream.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-                            },
-                            ClientCommand::GetAddr => {
-                                // Get the stream's address
-                                let addr = stream.local_addr();
-
-                                // Return the address
-                                if let Err(_e) = client_command_receiver.command_return(ClientCommandReturn::GetAddr(addr)).await {
-                                    // Channel is closed, disconnect from the server
-                                    stream.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-                            },
-                            ClientCommand::GetServerAddr => {
-                                // Get the stream's address
-                                let addr = stream.peer_addr();
-
-                                // Return the address
-                                if let Err(_e) = client_command_receiver.command_return(ClientCommandReturn::GetServerAddr(addr)).await {
-                                    // Channel is closed, disconnect from the server
-                                    stream.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-                            },
+                            // Break the client loop
+                            break;
                         }
-                    },
-                    Err(_e) => {
-                        // Client probably disconnected, exit
-                        stream.shutdown(Shutdown::Both)?;
-                        break;
+                        ClientCommand::Send { data } => {
+                            let value = 'val: {
+                                // Serialize the data
+                                let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
+                                // Encrypt the serialized data
+                                let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
+                                // Encode the message size to a buffer
+                                let size_buffer = encode_message_size(encrypted_data_buffer.len());
+
+                                // Initialize the message buffer
+                                let mut buffer = vec![];
+                                // Extend the buffer to contain the payload size
+                                buffer.extend_from_slice(&size_buffer);
+                                // Extend the buffer to contain the payload data
+                                buffer.extend(&encrypted_data_buffer);
+
+                                // Write the data to the stream
+                                let n = break_on_err!(stream.write(&buffer), 'val);
+                                // Flush the stream
+                                break_on_err!(stream.flush(), 'val);
+
+                                // If there were no bytes written, or if there were fewer
+                                // bytes written than there should have been, close the
+                                // stream
+                                if n != buffer.len() {
+                                    generic_io_error("failed to write data to stream")
+                                } else {
+                                    Ok(())
+                                }
+                            };
+
+                            let error_occurred = value.is_err();
+
+                            // Return the status of the send operation
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ClientCommandReturn::Send(value))
+                            {
+                                // Channel is closed, disconnect from the server
+                                stream.shutdown(Shutdown::Both)?;
+                                break;
+                            }
+
+                            // If the send failed, disconnect from the server
+                            if error_occurred {
+                                stream.shutdown(Shutdown::Both)?;
+                                break;
+                            }
+                        }
+                        ClientCommand::GetAddr => {
+                            // Get the stream's address
+                            let addr = stream.local_addr();
+
+                            // Return the address
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ClientCommandReturn::GetAddr(addr))
+                            {
+                                // Channel is closed, disconnect from the server
+                                stream.shutdown(Shutdown::Both)?;
+                                break;
+                            }
+                        }
+                        ClientCommand::GetServerAddr => {
+                            // Get the stream's address
+                            let addr = stream.peer_addr();
+
+                            // Return the address
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ClientCommandReturn::GetServerAddr(addr))
+                            {
+                                // Channel is closed, disconnect from the server
+                                stream.shutdown(Shutdown::Both)?;
+                                break;
+                            }
+                        }
                     }
                 }
+            }
+            Err(_e) => {
+                // Client probably disconnected, exit
+                stream.shutdown(Shutdown::Both)?;
+                break;
             }
         }
     }
 
     // Send a disconnect event, ignoring send errors
-    if let Err(_e) = client_event_sender.send(ClientEvent::Disconnect).await {}
+    if let Err(_e) = client_event_sender.send(ClientEvent::Disconnect) {}
 
     Ok(())
 }

@@ -88,5 +88,5 @@ pub mod rt_tokio;
 #[cfg(feature = "rt-async-std")]
 pub mod rt_async_std;
 
-#[cfg(feature = "rt-std")]
-pub mod rt_std;
+#[cfg(feature = "rt-sync")]
+pub mod rt_sync;

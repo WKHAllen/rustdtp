@@ -1,19 +1,16 @@
 use super::command_channel::*;
-use super::event_stream::*;
-use super::timeout::*;
+use super::event_iter::*;
 use crate::crypto::*;
 use crate::util::*;
-use async_std::channel::{bounded, Sender};
-use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use async_std::task::JoinHandle;
-use futures::future::FutureExt;
-use futures::{AsyncReadExt, AsyncWriteExt};
 use rsa::pkcs8::EncodePublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Read, Write};
 use std::marker::PhantomData;
-use std::net::{Shutdown, SocketAddr};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::{channel, Sender, TryRecvError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 /// A command sent from the server handle to the background server task.
 pub enum ServerCommand<S>
@@ -76,15 +73,14 @@ pub enum ServerClientCommandReturn {
 /// An event from the server.
 ///
 /// ```no_run
-/// use rustdtp::rt_async_std::*;
+/// use rustdtp::rt_sync::*;
 ///
-/// #[async_std::main]
-/// async fn main() {
+/// fn main() {
 ///     // Create the server
-///     let (server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
+///     let (server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_event.next().await {
+///     while let Some(event) = server_event.next() {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -138,21 +134,20 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting clients.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Wait for events until a client requests the server be stopped
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_event.next() {
     ///         match event {
     ///             // Stop the server when a client requests it be stopped
     ///             ServerEvent::Receive { client_id, data } => {
     ///                 if data.as_str() == "Stop the server!" {
     ///                     println!("Server stop requested");
-    ///                     server.stop().await.unwrap();
+    ///                     server.stop().unwrap();
     ///                     break;
     ///                 }
     ///             }
@@ -161,15 +156,14 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_event.next().unwrap(), ServerEvent::Stop));
     /// }
     /// ```
-    pub async fn stop(self) -> io::Result<()> {
+    pub fn stop(self) -> io::Result<()> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::Stop)
-            .await?;
-        self.server_task_handle.await?;
+            .send_command(ServerCommand::Stop)?;
+        self.server_task_handle.join().unwrap()?;
         unwrap_enum!(value, ServerCommandReturn::Stop)
     }
 
@@ -181,30 +175,28 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_event.next() {
     ///         match event {
     ///             // When a client connects, send a greeting
     ///             ServerEvent::Connect { client_id } => {
-    ///                 server.send(client_id, format!("Hello, client {}!", client_id)).await.unwrap();
+    ///                 server.send(client_id, format!("Hello, client {}!", client_id)).unwrap();
     ///             }
     ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
     /// ```
-    pub async fn send(&self, client_id: usize, data: S) -> io::Result<()> {
+    pub fn send(&self, client_id: usize, data: S) -> io::Result<()> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::Send { client_id, data })
-            .await?;
+            .send_command(ServerCommand::Send { client_id, data })?;
         unwrap_enum!(value, ServerCommandReturn::Send)
     }
 
@@ -215,30 +207,28 @@ where
     /// Returns a result of the error variant if an error occurred while sending.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_event.next() {
     ///         match event {
     ///             // When a client connects, notify all clients
     ///             ServerEvent::Connect { client_id } => {
-    ///                 server.send_all(format!("A new client with ID {} has joined!", client_id)).await.unwrap();
+    ///                 server.send_all(format!("A new client with ID {} has joined!", client_id)).unwrap();
     ///             }
     ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
     /// ```
-    pub async fn send_all(&self, data: S) -> io::Result<()> {
+    pub fn send_all(&self, data: S) -> io::Result<()> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::SendAll { data })
-            .await?;
+            .send_command(ServerCommand::SendAll { data })?;
         unwrap_enum!(value, ServerCommandReturn::SendAll)
     }
 
@@ -247,23 +237,21 @@ where
     /// Returns a result containing the address the server is listening on, or the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Get the server address
-    ///     let addr = server.get_addr().await.unwrap();
+    ///     let addr = server.get_addr().unwrap();
     ///     println!("Server listening on {}", addr);
     /// }
     /// ```
-    pub async fn get_addr(&self) -> io::Result<SocketAddr> {
+    pub fn get_addr(&self) -> io::Result<SocketAddr> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::GetAddr)
-            .await?;
+            .send_command(ServerCommand::GetAddr)?;
         unwrap_enum!(value, ServerCommandReturn::GetAddr)
     }
 
@@ -274,30 +262,28 @@ where
     /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_event.next() {
     ///         match event {
     ///             // When a client connects, get their address
     ///             ServerEvent::Connect { client_id } => {
-    ///                 let addr = server.get_client_addr(client_id).await.unwrap();
+    ///                 let addr = server.get_client_addr(client_id).unwrap();
     ///                 println!("Client with ID {} connected from {}", client_id, addr);
     ///             }
     ///             _ => {}  // Do nothing for other events
     ///         }
     ///     }
     /// }
-    pub async fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
+    pub fn get_client_addr(&self, client_id: usize) -> io::Result<SocketAddr> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::GetClientAddr { client_id })
-            .await?;
+            .send_command(ServerCommand::GetClientAddr { client_id })?;
         unwrap_enum!(value, ServerCommandReturn::GetClientAddr)
     }
 
@@ -308,22 +294,21 @@ where
     /// Returns a result of the error variant if an error occurred while disconnecting the client, or if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
+    /// fn main() {
     ///     // Create the server
-    ///     let (server, mut server_event) = Server::<String, i32>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (server, mut server_event) = Server::<String, i32>::start(("0.0.0.0", 0)).unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_event.next() {
     ///         match event {
     ///             // Disconnect a client if they send an even number
     ///             ServerEvent::Receive { client_id, data } => {
     ///                 if data % 2 == 0 {
     ///                     println!("Disconnecting client with ID {}", client_id);
-    ///                     server.send(client_id, "Even numbers are not allowed".to_owned()).await.unwrap();
-    ///                     server.remove_client(client_id).await.unwrap();
+    ///                     server.send(client_id, "Even numbers are not allowed".to_owned()).unwrap();
+    ///                     server.remove_client(client_id).unwrap();
     ///                 }
     ///             }
     ///             _ => {}  // Do nothing for other events
@@ -331,14 +316,13 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_event.next().unwrap(), ServerEvent::Stop));
     /// }
     /// ```
-    pub async fn remove_client(&self, client_id: usize) -> io::Result<()> {
+    pub fn remove_client(&self, client_id: usize) -> io::Result<()> {
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::RemoveClient { client_id })
-            .await?;
+            .send_command(ServerCommand::RemoveClient { client_id })?;
         unwrap_enum!(value, ServerCommandReturn::RemoveClient)
     }
 }
@@ -353,15 +337,14 @@ where
 /// Both types must be serializable in order to be sent through the socket. When creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::rt_async_std::*;
+/// use rustdtp::rt_sync::*;
 ///
-/// #[async_std::main]
-/// async fn main() {
+/// fn main() {
 ///     // Create a server that receives strings and returns the length of each string
-///     let (server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+///     let (server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_event.next().await {
+///     while let Some(event) = server_event.next() {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -371,7 +354,7 @@ where
 ///             }
 ///             ServerEvent::Receive { client_id, data } => {
 ///                 // Send back the length of the string
-///                 server.send(client_id, data.len()).await.unwrap();
+///                 server.send(client_id, data.len()).unwrap();
 ///             }
 ///             ServerEvent::Stop => {
 ///                 // No more events will be sent, and the loop will end
@@ -404,32 +387,29 @@ where
     /// Returns a result containing a handle to the server and a channel from which to receive server events, or the error variant if an error occurred while starting the server.
     ///
     /// ```no_run
-    /// use rustdtp::rt_async_std::*;
+    /// use rustdtp::rt_sync::*;
     ///
-    /// #[async_std::main]
-    /// async fn main() {
-    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    /// fn main() {
+    ///     let (server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).unwrap();
     /// }
     /// ```
     ///
     /// Neither the server handle nor the event receiver should be dropped until the server has been stopped. Prematurely dropping either one can cause unintended behavior.
-    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
+    pub fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventIter<ServerEvent<R>>)>
     where
         A: ToSocketAddrs,
     {
         // Server TCP listener
-        let listener = TcpListener::bind(addr).await?;
+        let listener = TcpListener::bind(addr)?;
         // Channels for sending commands from the server handle to the background server task
         let (server_command_sender, server_command_receiver) = command_channel();
         // Channels for sending event notifications from the background server task
-        let (server_event_sender, server_event_receiver) = bounded(CHANNEL_BUFFER_SIZE);
+        let (server_event_sender, server_event_receiver) = channel();
 
         // Start the background server task, saving the join handle for when the server is stopped
-        let server_task_handle = async_std::task::spawn(server_handler(
-            listener,
-            server_event_sender,
-            server_command_receiver,
-        ));
+        let server_task_handle = thread::spawn(move || {
+            server_handler(listener, server_event_sender, server_command_receiver)
+        });
 
         // Create a handle for the server
         let server_handle = ServerHandle {
@@ -438,14 +418,14 @@ where
         };
 
         // Create an event stream for the server
-        let server_event_stream = EventStream::new(server_event_receiver);
+        let server_event_stream = EventIter::new(server_event_receiver);
 
         Ok((server_handle, server_event_stream))
     }
 }
 
 /// The server client loop. Handles received data and commands.
-async fn server_client_loop<S, R>(
+fn server_client_loop<S, R>(
     client_id: usize,
     mut socket: TcpStream,
     aes_key: [u8; AES_KEY_SIZE],
@@ -462,16 +442,19 @@ where
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
 
+    // Set the socket to non-blocking mode
+    socket.set_nonblocking(true)?;
+    // Set the socket timeout
+    socket.set_read_timeout(Some(Duration::from_millis(DATA_READ_TIMEOUT)))?;
+
     // Client loop
     loop {
         // Await messages from the client
         // and commands from the background server task
-        futures::select! {
-            // Read the size portion from the client socket
-            read_value = socket.read(&mut size_buffer).fuse() => {
-                // Return an error if the socket could not be read
-                let n_size = read_value?;
 
+        // Read the size portion from the client socket
+        match socket.read(&mut size_buffer) {
+            Ok(n_size) => {
                 // If there were no bytes read, or if there were fewer bytes read than there
                 // should have been, close the socket
                 if n_size != LEN_SIZE {
@@ -484,11 +467,12 @@ where
                 // Initialize the buffer for the data portion of the message
                 let mut encrypted_data_buffer = vec![0; encrypted_data_size];
 
+                // Set the socket to blocking mode
+                socket.set_nonblocking(false)?;
+
                 // Read the data portion from the client socket, returning an error if the
                 // socket could not be read
-                let n_data = data_read_timeout! {
-                    socket.read(&mut encrypted_data_buffer)
-                }??;
+                let n_data = socket.read(&mut encrypted_data_buffer)?;
 
                 // If there were no bytes read, or if there were fewer bytes read than there
                 // should have been, close the socket
@@ -507,7 +491,9 @@ where
                 if let Ok(data) = serde_json::from_slice(&data_buffer) {
                     // Send an event to note that a piece of data has been received from
                     // a client
-                    if let Err(_e) = server_client_event_sender.send(ServerEvent::Receive { client_id, data }).await {
+                    if let Err(_e) =
+                        server_client_event_sender.send(ServerEvent::Receive { client_id, data })
+                    {
                         // Sending failed, disconnect the client
                         socket.shutdown(Shutdown::Both)?;
                         break;
@@ -517,91 +503,110 @@ where
                     socket.shutdown(Shutdown::Both)?;
                     break;
                 }
+
+                // Set the socket back to non-blocking mode
+                socket.set_nonblocking(true)?;
+
+                Ok(())
             }
-            // Process a command sent to the client
-            client_command_value = client_command_receiver.recv_command().fuse() => {
-                // Handle the command, or lack thereof if the channel is closed
-                match client_command_value {
-                    Ok(client_command) => {
-                        // Process the command
-                        match client_command {
-                            ServerClientCommand::Send { data } => {
-                                let value = 'val: {
-                                    // Serialize the data
-                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
-                                    // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
-                                    // Encode the message size to a buffer
-                                    let size_buffer = encode_message_size(encrypted_data_buffer.len());
+            Err(ref e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }?;
 
-                                    // Initialize the message buffer
-                                    let mut buffer = vec![];
-                                    // Extend the buffer to contain the payload size
-                                    buffer.extend_from_slice(&size_buffer);
-                                    // Extend the buffer to contain the payload data
-                                    buffer.extend(&encrypted_data_buffer);
+        // Process a command sent to the client
+        match client_command_receiver.try_recv_command() {
+            // Handle the command, or lack thereof if the channel is closed
+            Ok(client_command_value) => {
+                if let Some(client_command) = client_command_value {
+                    // Process the command
+                    match client_command {
+                        ServerClientCommand::Send { data } => {
+                            let value = 'val: {
+                                // Serialize the data
+                                let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
+                                // Encrypt the serialized data
+                                let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
+                                // Encode the message size to a buffer
+                                let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
-                                    // Write the data to the client socket
-                                    let n = break_on_err!(socket.write(&buffer).await, 'val);
-                                    // Flush the stream
-                                    break_on_err!(socket.flush().await, 'val);
+                                // Initialize the message buffer
+                                let mut buffer = vec![];
+                                // Extend the buffer to contain the payload size
+                                buffer.extend_from_slice(&size_buffer);
+                                // Extend the buffer to contain the payload data
+                                buffer.extend(&encrypted_data_buffer);
 
-                                    // If there were no bytes written, or if there were fewer
-                                    // bytes written than there should have been, close the
-                                    // socket
-                                    if n != buffer.len() {
-                                        generic_io_error("failed to write data to socket")
-                                    } else {
-                                        Ok(())
-                                    }
-                                };
+                                // Write the data to the client socket
+                                let n = break_on_err!(socket.write(&buffer), 'val);
+                                // Flush the stream
+                                break_on_err!(socket.flush(), 'val);
 
-                                let error_occurred = value.is_err();
-
-                                // Return the status of the send operation
-                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::Send(value)).await {
-                                    // Channel is closed, disconnect the client
-                                    socket.shutdown(Shutdown::Both)?;
-                                    break;
+                                // If there were no bytes written, or if there were fewer
+                                // bytes written than there should have been, close the
+                                // socket
+                                if n != buffer.len() {
+                                    generic_io_error("failed to write data to socket")
+                                } else {
+                                    Ok(())
                                 }
+                            };
 
-                                // If the send failed, disconnect the client
-                                if error_occurred {
-                                    socket.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-                            },
-                            ServerClientCommand::GetAddr => {
-                                // Get the client socket's address
-                                let addr = socket.peer_addr();
+                            let error_occurred = value.is_err();
 
-                                // Return the address
-                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::GetAddr(addr)).await {
-                                    // Channel is closed, disconnect the client
-                                    socket.shutdown(Shutdown::Both)?;
-                                    break;
-                                }
-                            },
-                            ServerClientCommand::Remove => {
-                                // Disconnect the client
-                                let value = socket.shutdown(Shutdown::Both);
-
-                                // Return the status of the remove operation, ignoring
-                                // failures, since a failure indicates that the client has
-                                // probably already disconnected
-                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value)).await {}
-
-                                // Break the client loop
+                            // Return the status of the send operation
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ServerClientCommandReturn::Send(value))
+                            {
+                                // Channel is closed, disconnect the client
+                                socket.shutdown(Shutdown::Both)?;
                                 break;
-                            },
+                            }
+
+                            // If the send failed, disconnect the client
+                            if error_occurred {
+                                socket.shutdown(Shutdown::Both)?;
+                                break;
+                            }
                         }
-                    },
-                    Err(_e) => {
-                        // Channel is closed, disconnect the client
-                        socket.shutdown(Shutdown::Both)?;
-                        break;
-                    },
+                        ServerClientCommand::GetAddr => {
+                            // Get the client socket's address
+                            let addr = socket.peer_addr();
+
+                            // Return the address
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ServerClientCommandReturn::GetAddr(addr))
+                            {
+                                // Channel is closed, disconnect the client
+                                socket.shutdown(Shutdown::Both)?;
+                                break;
+                            }
+                        }
+                        ServerClientCommand::Remove => {
+                            // Disconnect the client
+                            let value = socket.shutdown(Shutdown::Both);
+
+                            // Return the status of the remove operation, ignoring
+                            // failures, since a failure indicates that the client has
+                            // probably already disconnected
+                            if let Err(_e) = client_command_receiver
+                                .command_return(ServerClientCommandReturn::Remove(value))
+                            {
+                            }
+
+                            // Break the client loop
+                            break;
+                        }
+                    }
                 }
+            }
+            Err(_e) => {
+                // Channel is closed, disconnect the client
+                socket.shutdown(Shutdown::Both)?;
+                break;
             }
         }
     }
@@ -610,7 +615,7 @@ where
 }
 
 /// Starts a server client loop in the background.
-async fn server_client_handler<S, R>(
+fn server_client_handler<S, R>(
     client_id: usize,
     mut socket: TcpStream,
     server_client_event_sender: Sender<ServerEvent<R>>,
@@ -635,9 +640,9 @@ where
     // Extend the buffer with the RSA public key bytes
     rsa_pub_buffer.extend(rsa_pub_bytes);
     // Send the RSA public key to the client
-    let n = socket.write(&rsa_pub_buffer).await?;
+    let n = socket.write(&rsa_pub_buffer)?;
     // Flush the stream
-    socket.flush().await?;
+    socket.flush()?;
 
     // If there were no bytes written, or if there were fewer
     // bytes written than there should have been, close the
@@ -649,10 +654,14 @@ where
 
     // Buffer in which to receive the size portion of the AES key
     let mut aes_key_size_buffer = [0; LEN_SIZE];
+
+    // Set the socket to blocking mode
+    socket.set_nonblocking(false)?;
+    // Set the socket timeout
+    socket.set_read_timeout(Some(Duration::from_millis(HANDSHAKE_TIMEOUT)))?;
+
     // Read the AES key from the client
-    let n_size = handshake_timeout! {
-        socket.read(&mut aes_key_size_buffer)
-    }??;
+    let n_size = socket.read(&mut aes_key_size_buffer)?;
 
     // If there were no bytes read, or if there were fewer bytes read than there
     // should have been, close the socket and exit
@@ -666,11 +675,12 @@ where
     // Initialize the buffer for the AES key
     let mut aes_key_buffer = vec![0; aes_key_size];
 
+    // Set the socket timeout
+    socket.set_read_timeout(Some(Duration::from_millis(DATA_READ_TIMEOUT)))?;
+
     // Read the AES key portion from the client socket, returning an error if the
     // socket could not be read
-    let n_aes_key = data_read_timeout! {
-        socket.read(&mut aes_key_buffer)
-    }??;
+    let n_aes_key = socket.read(&mut aes_key_buffer)?;
 
     // If there were no bytes read, or if there were fewer bytes read than there
     // should have been, close the socket and exit
@@ -692,19 +702,18 @@ where
     let (client_command_sender, client_command_receiver) = command_channel();
 
     // Start a background client task, saving the join handle for when the server is stopped
-    let client_task_handle = async_std::task::spawn(async move {
+    let client_task_handle = thread::spawn(move || {
         let res = server_client_loop(
             client_id,
             socket,
             aes_key,
             server_client_event_sender,
             client_command_receiver,
-        )
-        .await;
+        );
 
         // Tell the server to clean up after the client, ignoring failures, since a failure
         // indicates that the server has probably closed
-        if let Err(_e) = client_cleanup_sender.send(client_id).await {}
+        if let Err(_e) = client_cleanup_sender.send(client_id) {}
 
         res
     });
@@ -713,7 +722,7 @@ where
 }
 
 /// The server loop. Handles incoming connections and commands.
-async fn server_loop<S, R>(
+fn server_loop<S, R>(
     listener: TcpListener,
     server_event_sender: Sender<ServerEvent<R>>,
     server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
@@ -730,19 +739,20 @@ where
     // ID assigned to the next client
     let mut next_client_id = 0usize;
     // Channel for indicating that a client needs to be cleaned up after
-    let (server_client_cleanup_sender, server_client_cleanup_receiver) =
-        bounded::<usize>(CHANNEL_BUFFER_SIZE);
+    let (server_client_cleanup_sender, server_client_cleanup_receiver) = channel::<usize>();
+
+    // Set the listener to non-blocking mode
+    listener.set_nonblocking(true)?;
 
     // Server loop
     loop {
         // Await new clients connecting,
         // commands from the server handle,
         // and notifications of clients disconnecting
-        futures::select! {
-            // Accept a connecting client
-            accept_value = listener.accept().fuse() => {
-                // Get the client socket, exiting if an error occurs
-                let (socket, _) = accept_value?;
+
+        // Accept a connecting client
+        match listener.accept() {
+            Ok((socket, _)) => {
                 // New client ID
                 let client_id = next_client_id.clone();
                 // Increment next client ID
@@ -753,7 +763,12 @@ where
                 let client_cleanup_sender = server_client_cleanup_sender.clone();
 
                 // Handle the new connection
-                match server_client_handler(client_id, socket, server_client_event_sender, client_cleanup_sender).await {
+                match server_client_handler(
+                    client_id,
+                    socket,
+                    server_client_event_sender,
+                    client_cleanup_sender,
+                ) {
                     Ok((client_command_sender, client_task_handle)) => {
                         // Keep track of client command senders
                         client_command_senders.insert(client_id, client_command_sender);
@@ -761,14 +776,13 @@ where
                         client_join_handles.insert(client_id, client_task_handle);
 
                         // Send an event to note that a client has connected successfully
-                        if let Err(_e) = server_event_sender
-                            .send(ServerEvent::Connect { client_id })
-                            .await
+                        if let Err(_e) =
+                            server_event_sender.send(ServerEvent::Connect { client_id })
                         {
                             // Server is probably closed
                             break;
                         }
-                    },
+                    }
                     Err(e) => {
                         if cfg!(test) {
                             // If testing, fail
@@ -778,142 +792,192 @@ where
                         }
                     }
                 }
-            },
-            // Process a command from the server handle
-            command_value = server_command_receiver.recv_command().fuse() => {
-                // Handle the command, or lack thereof if the channel is closed
-                match command_value {
-                    Ok(command) => {
-                        match command {
-                            ServerCommand::Stop => {
-                                // If a command fails to send, the server has already closed,
-                                // and the error can be ignored.
-                                // It should be noted that this is not where the stop method actually returns
-                                // its `Result`. This immediately returns with an `Ok` status. The real return
-                                // value is the `Result` returned from the server task join handle.
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::Stop(Ok(()))).await {}
 
-                                // Break the server loop, the clients will be disconnected before the task ends
-                                break;
-                            },
-                            ServerCommand::Send { client_id, data } => {
-                                let value = match client_command_senders.get_mut(&client_id) {
-                                    Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::Send { data }).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
-                                            Ok(())
-                                        },
-                                    },
-                                    None => generic_io_error("invalid client"),
-                                };
-
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::Send(value)).await {}
-                            },
-                            ServerCommand::SendAll { data } => {
-                                for (_client_id, client_command_sender) in client_command_senders.iter_mut() {
-                                    let data_clone = data.clone();
-
-                                    match client_command_sender.send_command(ServerClientCommand::Send { data: data_clone }).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
-                                            Ok(())
-                                        },
-                                    }.unwrap();
-                                };
-
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::SendAll(Ok(()))).await {}
-                            },
-                            ServerCommand::GetAddr => {
-                                // Get the server listener's address
-                                let addr = listener.local_addr();
-
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::GetAddr(addr)).await {}
-                            },
-                            ServerCommand::GetClientAddr { client_id } => {
-                                let value = match client_command_senders.get_mut(&client_id) {
-                                    Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::GetAddr).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::GetAddr),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be treated as an invalid
-                                            // client error
-                                            generic_io_error("invalid client")
-                                        },
-                                    },
-                                    None => generic_io_error("invalid client"),
-                                };
-
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::GetClientAddr(value)).await {}
-                            },
-                            ServerCommand::RemoveClient { client_id } => {
-                                let value = match client_command_senders.get_mut(&client_id) {
-                                    Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::Remove).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Remove),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
-                                            Ok(())
-                                        },
-                                    },
-                                    None => generic_io_error("invalid client"),
-                                };
-
-                                // If a command fails to send, the client has probably disconnected already,
-                                // and the error can be ignored
-                                if let Ok(_) = server_command_receiver.command_return(ServerCommandReturn::RemoveClient(value)).await {}
-                            },
-                        }
-                    },
-                    Err(_e) => {
-                        // Server is probably closed, exit
-                        break;
-                    },
-                }
+                Ok(())
             }
-            // Clean up after a disconnecting client
-            disconnecting_client_id = server_client_cleanup_receiver.recv().fuse() => {
-                match disconnecting_client_id {
-                    Ok(client_id) => {
-                        // Remove the client's command sender, which will be dropped after this block ends
-                        client_command_senders.remove(&client_id);
+            Err(ref e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }?;
 
-                        // Remove the client's join handle
-                        if let Some(handle) = client_join_handles.remove(&client_id) {
-                            // Join the client's handle
-                            if let Err(e) = handle.await {
-                                if cfg!(test) {
-                                    // If testing, fail
-                                    Err(e)?
-                                } else {
-                                    // If not testing, ignore client handler errors
-                                }
+        // Process a command from the server handle
+        match server_command_receiver.try_recv_command() {
+            // Handle the command, or lack thereof if the channel is closed
+            Ok(command_value) => {
+                if let Some(command) = command_value {
+                    match command {
+                        ServerCommand::Stop => {
+                            // If a command fails to send, the server has already closed,
+                            // and the error can be ignored.
+                            // It should be noted that this is not where the stop method actually returns
+                            // its `Result`. This immediately returns with an `Ok` status. The real return
+                            // value is the `Result` returned from the server task join handle.
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::Stop(Ok(())))
+                            {
                             }
-                        }
 
-                        // Send an event to note that a client has disconnected
-                        if let Err(_e) = server_event_sender.send(ServerEvent::Disconnect { client_id }).await {
-                            // Server is probably closed, exit
+                            // Break the server loop, the clients will be disconnected before the task ends
                             break;
                         }
-                    },
-                    Err(_e) => {
-                        // Server is probably closed, exit
-                        break;
-                    },
+                        ServerCommand::Send { client_id, data } => {
+                            let value = match client_command_senders.get_mut(&client_id) {
+                                Some(client_command_sender) => match client_command_sender
+                                    .send_command(ServerClientCommand::Send { data })
+                                {
+                                    Ok(return_value) => {
+                                        unwrap_enum!(return_value, ServerClientCommandReturn::Send)
+                                    }
+                                    Err(_e) => {
+                                        // The channel is closed, and the client has probably been
+                                        // disconnected, so the error can be ignored
+                                        Ok(())
+                                    }
+                                },
+                                None => generic_io_error("invalid client"),
+                            };
+
+                            // If a command fails to send, the client has probably disconnected,
+                            // and the error can be ignored
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::Send(value))
+                            {
+                            }
+                        }
+                        ServerCommand::SendAll { data } => {
+                            for (_client_id, client_command_sender) in
+                                client_command_senders.iter_mut()
+                            {
+                                let data_clone = data.clone();
+
+                                match client_command_sender
+                                    .send_command(ServerClientCommand::Send { data: data_clone })
+                                {
+                                    Ok(return_value) => {
+                                        unwrap_enum!(return_value, ServerClientCommandReturn::Send)
+                                    }
+                                    Err(_e) => {
+                                        // The channel is closed, and the client has probably been
+                                        // disconnected, so the error can be ignored
+                                        Ok(())
+                                    }
+                                }
+                                .unwrap();
+                            }
+
+                            // If a command fails to send, the client has probably disconnected,
+                            // and the error can be ignored
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::SendAll(Ok(())))
+                            {
+                            }
+                        }
+                        ServerCommand::GetAddr => {
+                            // Get the server listener's address
+                            let addr = listener.local_addr();
+
+                            // If a command fails to send, the client has probably disconnected,
+                            // and the error can be ignored
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::GetAddr(addr))
+                            {
+                            }
+                        }
+                        ServerCommand::GetClientAddr { client_id } => {
+                            let value = match client_command_senders.get_mut(&client_id) {
+                                Some(client_command_sender) => match client_command_sender
+                                    .send_command(ServerClientCommand::GetAddr)
+                                {
+                                    Ok(return_value) => unwrap_enum!(
+                                        return_value,
+                                        ServerClientCommandReturn::GetAddr
+                                    ),
+                                    Err(_e) => {
+                                        // The channel is closed, and the client has probably been
+                                        // disconnected, so the error can be treated as an invalid
+                                        // client error
+                                        generic_io_error("invalid client")
+                                    }
+                                },
+                                None => generic_io_error("invalid client"),
+                            };
+
+                            // If a command fails to send, the client has probably disconnected,
+                            // and the error can be ignored
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::GetClientAddr(value))
+                            {
+                            }
+                        }
+                        ServerCommand::RemoveClient { client_id } => {
+                            let value = match client_command_senders.get_mut(&client_id) {
+                                Some(client_command_sender) => match client_command_sender
+                                    .send_command(ServerClientCommand::Remove)
+                                {
+                                    Ok(return_value) => unwrap_enum!(
+                                        return_value,
+                                        ServerClientCommandReturn::Remove
+                                    ),
+                                    Err(_e) => {
+                                        // The channel is closed, and the client has probably been
+                                        // disconnected, so the error can be ignored
+                                        Ok(())
+                                    }
+                                },
+                                None => generic_io_error("invalid client"),
+                            };
+
+                            // If a command fails to send, the client has probably disconnected already,
+                            // and the error can be ignored
+                            if let Ok(_) = server_command_receiver
+                                .command_return(ServerCommandReturn::RemoveClient(value))
+                            {
+                            }
+                        }
+                    }
                 }
             }
+            Err(_e) => {
+                // Server is probably closed, exit
+                break;
+            }
+        }
+
+        // Clean up after a disconnecting client
+        match server_client_cleanup_receiver.try_recv() {
+            Ok(client_id) => {
+                // Remove the client's command sender, which will be dropped after this block ends
+                client_command_senders.remove(&client_id);
+
+                // Remove the client's join handle
+                if let Some(handle) = client_join_handles.remove(&client_id) {
+                    // Join the client's handle
+                    if let Err(e) = handle.join().unwrap() {
+                        if cfg!(test) {
+                            // If testing, fail
+                            Err(e)?
+                        } else {
+                            // If not testing, ignore client handler errors
+                        }
+                    }
+                }
+
+                // Send an event to note that a client has disconnected
+                if let Err(_e) = server_event_sender.send(ServerEvent::Disconnect { client_id }) {
+                    // Server is probably closed, exit
+                    break;
+                }
+            }
+            Err(e) => match e {
+                TryRecvError::Empty => {}
+                TryRecvError::Disconnected => {
+                    // Server is probably closed, exit
+                    break;
+                }
+            },
         }
     }
 
@@ -921,7 +985,7 @@ where
 }
 
 /// Starts the server loop task in the background.
-async fn server_handler<S, R>(
+fn server_handler<S, R>(
     listener: TcpListener,
     server_event_sender: Sender<ServerEvent<R>>,
     server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
@@ -945,22 +1009,18 @@ where
         server_command_receiver,
         &mut client_command_senders,
         &mut client_join_handles,
-    )
-    .await;
+    );
 
     // Send a remove command to all clients
     for (_client_id, client_command_sender) in client_command_senders {
         // If a command fails to send, the client has probably disconnected already,
         // and the error can be ignored
-        if let Ok(_) = client_command_sender
-            .send_command(ServerClientCommand::Remove)
-            .await
-        {}
+        if let Ok(_) = client_command_sender.send_command(ServerClientCommand::Remove) {}
     }
 
     // Join all background client tasks before exiting
     for (_client_id, handle) in client_join_handles {
-        if let Err(e) = handle.await {
+        if let Err(e) = handle.join().unwrap() {
             if cfg!(test) {
                 // If testing, fail
                 Err(e)?
@@ -971,7 +1031,7 @@ where
     }
 
     // Send a stop event, ignoring send errors
-    if let Err(_e) = server_event_sender.send(ServerEvent::Stop).await {}
+    if let Err(_e) = server_event_sender.send(ServerEvent::Stop) {}
 
     // Return server loop result
     server_exit

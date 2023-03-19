@@ -5,7 +5,7 @@ macro_rules! timeout {
             x = $value => {
                 Ok(x)
             },
-            _ = ::tokio::time::sleep(::std::time::Duration::from_millis($ms)) => {
+            _ = ::tokio::time::sleep(::tokio::time::Duration::from_millis($ms)) => {
                 ::core::result::Result::Err(::std::io::Error::new(::std::io::ErrorKind::TimedOut, $msg))
             }
         }

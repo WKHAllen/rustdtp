@@ -18,6 +18,11 @@ impl<T> EventStream<T> {
     pub(crate) fn new(event_receiver: Receiver<T>) -> Self {
         Self { event_receiver }
     }
+
+    /// Consumes and returns the next value in the stream, or `None` if the stream is finished.
+    pub async fn next(&mut self) -> Option<T> {
+        <Self as StreamExt>::next(self).await
+    }
 }
 
 impl<T> Stream for EventStream<T> {

@@ -1,7 +1,7 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::Receiver;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 
 /// An asynchronous stream of events.
 pub struct EventStream<T> {
@@ -17,6 +17,11 @@ impl<T> EventStream<T> {
     /// Returns the new event stream.
     pub(crate) fn new(event_receiver: Receiver<T>) -> Self {
         Self { event_receiver }
+    }
+
+    /// Consumes and returns the next value in the stream, or `None` if the stream is finished.
+    pub async fn next(&mut self) -> Option<T> {
+        <Self as StreamExt>::next(self).await
     }
 }
 

@@ -87,6 +87,7 @@ macro_rules! unwrap_enum {
     }};
 }
 
+/// Break from a block if a `Result` is an `Err`. Essentially the equivalent of the `?` operator but for blocks instead of functions.
 macro_rules! break_on_err {
     ($x:expr) => {
         match $x {
