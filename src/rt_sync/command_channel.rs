@@ -69,7 +69,6 @@ pub struct CommandChannelReceiver<S, R> {
     command_return_sender: Sender<R>,
 }
 
-#[allow(dead_code)]
 impl<S, R> CommandChannelReceiver<S, R> {
     /// Receive a command from the command channel.
     ///

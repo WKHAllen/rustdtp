@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-sync")),
+    allow(dead_code, unused_macros, unused_imports)
+)]
+
 use std::convert::TryFrom;
 use std::error;
 use std::io;

@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-sync")),
+    allow(dead_code)
+)]
+
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rsa::{PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey};
