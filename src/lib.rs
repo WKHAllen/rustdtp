@@ -95,7 +95,9 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-sync"))]
 mod crypto;
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-sync"))]
 mod util;
 
 #[cfg(feature = "rt-tokio")]

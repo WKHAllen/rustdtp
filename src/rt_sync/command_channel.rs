@@ -73,6 +73,7 @@ impl<S, R> CommandChannelReceiver<S, R> {
     /// Receive a command from the command channel.
     ///
     /// Returns a result containing the received command, or the error variant if an error occurred while interacting with the channel.
+    #[allow(dead_code)]
     pub fn recv_command(&self) -> Result<S, CommandChannelError<S>> {
         let command = match self.command_receiver.recv() {
             Ok(value) => Ok(value),

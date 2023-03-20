@@ -114,6 +114,18 @@ mod tests {
         pub c: Vec<String>,
     }
 
+    /// Statically assert that a type implements a trait or lifetime.
+    macro_rules! assert_impl {
+        ($name:ty, $trait_name:path) => {{
+            fn __test_impl__<T: $trait_name>() {}
+            __test_impl__::<$name>()
+        }};
+        ($name:ty, $lifetime_name:lifetime) => {{
+            fn __test_impl__<T: $lifetime_name>() {}
+            __test_impl__::<$name>()
+        }};
+    }
+
     /// Test the message size portion encoding.
     #[test]
     fn test_encode_message_size() {
@@ -830,5 +842,26 @@ mod tests {
         assert!(matches!(client_event.next().await, None));
         assert!(matches!(server_event.next().await, None));
         sleep!();
+    }
+
+    /// Test that returned types implement a desired set of traits.
+    #[async_std::test]
+    async fn test_impls() {
+        type TestType = usize;
+
+        assert_impl!(ServerHandle<TestType>, Send);
+        assert_impl!(ServerHandle<TestType>, Sync);
+        assert_impl!(ServerHandle<TestType>, 'static);
+        assert_impl!(ServerEvent<TestType>, Send);
+        assert_impl!(ServerEvent<TestType>, Sync);
+        assert_impl!(ServerEvent<TestType>, Clone);
+        assert_impl!(ServerEvent<TestType>, 'static);
+        assert_impl!(ClientHandle<TestType>, Send);
+        assert_impl!(ClientHandle<TestType>, Sync);
+        assert_impl!(ClientHandle<TestType>, 'static);
+        assert_impl!(ClientEvent<TestType>, Send);
+        assert_impl!(ClientEvent<TestType>, Sync);
+        assert_impl!(ClientEvent<TestType>, Clone);
+        assert_impl!(ClientEvent<TestType>, 'static);
     }
 }
