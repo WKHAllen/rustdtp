@@ -1,8 +1,3 @@
-#![cfg_attr(
-    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-sync")),
-    allow(dead_code)
-)]
-
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rsa::{PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey};
@@ -35,7 +30,7 @@ where
     E: Into<Box<dyn std::error::Error + Send + Sync>> + ToString,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &*self {
+        match self {
             Self::RsaError(e) => f.write_str(&e.to_string()),
             Self::AesError(e) => f.write_str(&e.to_string()),
             Self::Error(e) => f.write_str(&e.to_string()),
@@ -89,7 +84,7 @@ pub fn rsa_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
 pub fn rsa_encrypt(public_key: &RsaPublicKey, plaintext: &[u8]) -> Result<Vec<u8>> {
     let mut rng = rand::thread_rng();
     let padding = PaddingScheme::new_oaep::<sha2::Sha256>();
-    let ciphertext = public_key.encrypt(&mut rng, padding, &plaintext[..])?;
+    let ciphertext = public_key.encrypt(&mut rng, padding, plaintext)?;
 
     Ok(ciphertext)
 }

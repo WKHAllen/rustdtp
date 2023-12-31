@@ -46,15 +46,13 @@ where
 /// `size`: the message size.
 ///
 /// Returns the message size encoded in bytes.
-pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
-    let mut encoded_size = [0u8; LEN_SIZE];
-
-    for i in 0..LEN_SIZE {
-        encoded_size[LEN_SIZE - i - 1] = u8::try_from(size & 0xff).unwrap();
-        size >>= 8;
-    }
-
-    encoded_size
+pub fn encode_message_size(size: usize) -> [u8; LEN_SIZE] {
+    (0..LEN_SIZE)
+        .fold((size, [0u8; LEN_SIZE]), |(size, mut encoded_size), i| {
+            encoded_size[LEN_SIZE - i - 1] = u8::try_from(size & 0xff).unwrap();
+            (size >> 8, encoded_size)
+        })
+        .1
 }
 
 /// Decode the size portion of a message.
@@ -63,14 +61,9 @@ pub fn encode_message_size(mut size: usize) -> [u8; LEN_SIZE] {
 ///
 /// Returns the size of the message.
 pub fn decode_message_size(encoded_size: &[u8; LEN_SIZE]) -> usize {
-    let mut size: usize = 0;
-
-    for i in 0..LEN_SIZE {
-        size <<= 8;
-        size += usize::from(encoded_size[i]);
-    }
-
-    size
+    encoded_size
+        .iter()
+        .fold(0, |acc, x| (acc << 8) + usize::from(*x))
 }
 
 /// Assert that an enum is of the given variant, and unwrap the value within the variant.
