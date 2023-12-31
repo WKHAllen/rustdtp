@@ -191,26 +191,37 @@ mod tests {
     }
 
     /// Test crypto functions.
-    #[test]
-    fn test_crypto() {
+    #[tokio::test]
+    async fn test_crypto() {
         let rsa_message = "Hello, RSA!";
-        let (public_key, private_key) = crypto::rsa_keys().unwrap();
-        let rsa_encrypted = crypto::rsa_encrypt(&public_key, rsa_message.as_bytes()).unwrap();
-        let rsa_decrypted = crypto::rsa_decrypt(&private_key, &rsa_encrypted).unwrap();
+        let (public_key, private_key) = crypto::rsa_keys().await.unwrap();
+        let rsa_encrypted =
+            crypto::rsa_encrypt(public_key.clone(), rsa_message.as_bytes().to_vec())
+                .await
+                .unwrap();
+        let rsa_decrypted = crypto::rsa_decrypt(private_key.clone(), rsa_encrypted.clone())
+            .await
+            .unwrap();
         let rsa_decrypted_message = std::str::from_utf8(&rsa_decrypted).unwrap();
         assert_eq!(rsa_decrypted_message, rsa_message);
         assert_ne!(rsa_encrypted, rsa_message.as_bytes());
 
         let aes_message = "Hello, AES!";
-        let key = crypto::aes_key();
-        let aes_encrypted = crypto::aes_encrypt(&key, aes_message.as_bytes()).unwrap();
-        let aes_decrypted = crypto::aes_decrypt(&key, &aes_encrypted).unwrap();
+        let key = crypto::aes_key().await;
+        let aes_encrypted = crypto::aes_encrypt(key, aes_message.as_bytes().to_vec())
+            .await
+            .unwrap();
+        let aes_decrypted = crypto::aes_decrypt(key, aes_encrypted.clone())
+            .await
+            .unwrap();
         let aes_decrypted_message = std::str::from_utf8(&aes_decrypted).unwrap();
         assert_eq!(aes_decrypted_message, aes_message);
         assert_ne!(aes_encrypted, aes_message.as_bytes());
 
-        let encrypted_key = crypto::rsa_encrypt(&public_key, &key).unwrap();
-        let decrypted_key = crypto::rsa_decrypt(&private_key, &encrypted_key).unwrap();
+        let encrypted_key = crypto::rsa_encrypt(public_key, key.to_vec()).await.unwrap();
+        let decrypted_key = crypto::rsa_decrypt(private_key, encrypted_key.clone())
+            .await
+            .unwrap();
         assert_eq!(decrypted_key, key);
         assert_ne!(encrypted_key, key);
     }

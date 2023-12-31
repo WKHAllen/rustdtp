@@ -508,7 +508,7 @@ where
                 }
 
                 // Decrypt the data
-                let data_buffer = match aes_decrypt(&aes_key, &encrypted_data_buffer) {
+                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer).await {
                     Ok(val) => Ok(val),
                     Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
                 }?;
@@ -540,7 +540,7 @@ where
                                     // Serialize the data
                                     let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(&aes_key, &data_buffer)), 'val);
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer).await), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -634,7 +634,7 @@ where
     R: DeserializeOwned + Send + 'static,
 {
     // Generate RSA keys
-    let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys())?;
+    let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys().await)?;
     // Convert the RSA public key into a string...
     let rsa_pub_str =
         into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
@@ -690,7 +690,7 @@ where
     }
 
     // Decrypt the AES key
-    let aes_key_decrypted = into_generic_io_result(rsa_decrypt(&rsa_priv, &aes_key_buffer))?;
+    let aes_key_decrypted = into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer).await)?;
 
     // Assert that the AES key is the correct size
     let aes_key: [u8; AES_KEY_SIZE] = match aes_key_decrypted.try_into() {
