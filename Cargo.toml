@@ -11,11 +11,11 @@ include = ["src/**/*", "LICENSE", "README.md"]
 edition = "2021"
 
 [dependencies]
-aes-gcm = "0.10.1"
+aes-gcm = "0.10.3"
 rand = "0.8.5"
-rsa = "0.7.2"
+rsa = { version = "0.9.6", features = ["sha2"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10.6"
-tokio = { version = "1.26", features = ["full"] }
+sha2 = "0.10.8"
+tokio = { version = "1.35", features = ["full"] }
 tokio-stream = { version = "0.1" }

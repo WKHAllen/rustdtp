@@ -1,6 +1,7 @@
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
-use rsa::{PaddingScheme, PublicKey, RsaPrivateKey, RsaPublicKey};
+use rsa::sha2::Sha256;
+use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
 
 /// The number of bits to use for an RSA key.
 pub const RSA_KEY_SIZE: usize = 2048;
@@ -83,7 +84,7 @@ pub fn rsa_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
 /// Returns a result containing the encrypted data, or the error variant if an error occurred while encrypting.
 pub fn rsa_encrypt(public_key: &RsaPublicKey, plaintext: &[u8]) -> Result<Vec<u8>> {
     let mut rng = rand::thread_rng();
-    let padding = PaddingScheme::new_oaep::<sha2::Sha256>();
+    let padding = Oaep::new::<Sha256>();
     let ciphertext = public_key.encrypt(&mut rng, padding, plaintext)?;
 
     Ok(ciphertext)
@@ -96,7 +97,7 @@ pub fn rsa_encrypt(public_key: &RsaPublicKey, plaintext: &[u8]) -> Result<Vec<u8
 ///
 /// Returns a result containing the decrypted data, or the error variant if an error occurred while decrypting.
 pub fn rsa_decrypt(private_key: &RsaPrivateKey, ciphertext: &[u8]) -> Result<Vec<u8>> {
-    let padding = PaddingScheme::new_oaep::<sha2::Sha256>();
+    let padding = Oaep::new::<Sha256>();
     let plaintext = private_key.decrypt(padding, ciphertext)?;
 
     Ok(plaintext)
