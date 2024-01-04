@@ -95,7 +95,7 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-// #![warn(clippy::missing_docs_in_private_items)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 mod client;
 mod command_channel;
@@ -105,11 +105,11 @@ mod server;
 mod timeout;
 mod util;
 
+// Types re-exported from the crate.
 pub use async_trait::async_trait;
-/// Types re-exported from the crate.
 pub use tokio_stream::StreamExt as EventStreamExt;
 
-/// Types exported from the crate.
+// Types exported from the crate.
 pub use client::{
     Client, ClientBuilder, ClientEvent, ClientEventCallbacks, ClientEventHandler, ClientHandle,
 };
@@ -118,7 +118,7 @@ pub use server::{
     Server, ServerBuilder, ServerEvent, ServerEventCallbacks, ServerEventHandler, ServerHandle,
 };
 
-/// Tests using tokio.
+/// Root-level tests.
 #[cfg(test)]
 mod tests {
     use super::*;

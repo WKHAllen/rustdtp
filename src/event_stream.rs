@@ -1,3 +1,5 @@
+//! Event stream utilities.
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::Receiver;

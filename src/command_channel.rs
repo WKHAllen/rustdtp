@@ -1,3 +1,5 @@
+//! Command channel utilities.
+
 use std::io;
 use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 

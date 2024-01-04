@@ -1,3 +1,5 @@
+//! Timeout utilities.
+
 /// Attempt to await an async value within a given timeframe.
 macro_rules! timeout {
     ($value:expr, $ms:expr, $msg:expr) => {

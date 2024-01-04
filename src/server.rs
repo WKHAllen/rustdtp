@@ -1,3 +1,5 @@
+//! Protocol server implementation.
+
 use super::command_channel::*;
 use super::event_stream::*;
 use super::timeout::*;
@@ -81,9 +83,13 @@ pub struct ServerEventCallbacks<R>
 where
     R: DeserializeOwned + Send + 'static,
 {
+    /// The `connect` event callback.
     connect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    /// The `disconnect` event callback.
     disconnect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    /// The `receive` event callback.
     receive: Option<Box<dyn Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    /// The `stop` event callback.
     stop: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
 }
 
@@ -227,49 +233,63 @@ where
     async fn on_stop(&self) {}
 }
 
+/// Unknown server sending type.
 pub struct ServerSendingUnknown;
 
+/// Known server sending type, stored as the type parameter `S`.
 pub struct ServerSending<S>(PhantomData<S>)
 where
     S: Serialize + Clone + Send + 'static;
 
+/// A server sending marker trait.
 pub(crate) trait ServerSendingConfig {}
 
 impl ServerSendingConfig for ServerSendingUnknown {}
 
 impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + Clone + Send + 'static {}
 
+/// Unknown server receiving type.
 pub struct ServerReceivingUnknown;
 
+/// Known server receiving type, stored as the type parameter `R`.
 pub struct ServerReceiving<R>(PhantomData<R>)
 where
     R: DeserializeOwned + Send + 'static;
 
+/// A server receiving marker trait.
 pub(crate) trait ServerReceivingConfig {}
 
 impl ServerReceivingConfig for ServerReceivingUnknown {}
 
 impl<R> ServerReceivingConfig for ServerReceiving<R> where R: DeserializeOwned + Send + 'static {}
 
+/// Unknown server event reporting type.
 pub struct ServerEventReportingUnknown;
 
+/// Known server event reporting type, stored as the type parameter `E`.
 pub struct ServerEventReporting<E>(E);
 
+/// Server event reporting via callbacks.
 pub struct ServerEventReportingCallbacks<R>(ServerEventCallbacks<R>)
 where
     R: DeserializeOwned + Send + 'static;
 
+/// Server event reporting via an event handler.
 pub struct ServerEventReportingHandler<R, H>
 where
     R: DeserializeOwned + Send + 'static,
     H: ServerEventHandler<R>,
 {
+    /// The event handler instance.
     handler: H,
+    /// Phantom `R` owner.
     phantom_receive: PhantomData<R>,
 }
 
+/// Server event reporting via a channel.
 pub struct ServerEventReportingChannel;
 
+/// A server event reporting marker trait.
 pub(crate) trait ServerEventReportingConfig {}
 
 impl ServerEventReportingConfig for ServerEventReportingUnknown {}
@@ -339,8 +359,11 @@ where
     RC: ServerReceivingConfig,
     EC: ServerEventReportingConfig,
 {
+    /// Phantom `SC` owner.
     phantom_send: PhantomData<SC>,
+    /// Phantom `RC` owner.
     phantom_receive: PhantomData<RC>,
+    /// The event reporting configuration.
     event_reporting: EC,
 }
 
@@ -601,15 +624,29 @@ where
     /// Stop the server.
     Stop,
     /// Send data to a client.
-    Send { client_id: usize, data: S },
+    Send {
+        /// The ID of the client to send the data to.
+        client_id: usize,
+        /// The data to send.
+        data: S,
+    },
     /// Send data to all clients.
-    SendAll { data: S },
+    SendAll {
+        /// The data to send.
+        data: S,
+    },
     /// Get the local server address.
     GetAddr,
     /// Get the address of a client.
-    GetClientAddr { client_id: usize },
+    GetClientAddr {
+        /// The ID of the client.
+        client_id: usize,
+    },
     /// Disconnect a client from the server.
-    RemoveClient { client_id: usize },
+    RemoveClient {
+        /// The ID of the client.
+        client_id: usize,
+    },
 }
 
 /// The return value of a command executed on the background server task.
@@ -634,7 +671,10 @@ where
     S: Serialize + Clone + Send + 'static,
 {
     /// Send data to the client.
-    Send { data: S },
+    Send {
+        /// The data to send.
+        data: S,
+    },
     /// Get the address of the client.
     GetAddr,
     /// Disconnect the client.

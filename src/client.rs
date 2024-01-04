@@ -1,3 +1,5 @@
+//! Protocol client implementation.
+
 use super::command_channel::*;
 use super::event_stream::*;
 use super::timeout::*;
@@ -67,7 +69,9 @@ pub struct ClientEventCallbacks<R>
 where
     R: DeserializeOwned + Send + 'static,
 {
+    /// The `receive` event callback.
     receive: Option<Box<dyn Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    /// The `disconnect` event callback.
     disconnect: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
 }
 
@@ -163,49 +167,63 @@ where
     async fn on_disconnect(&self) {}
 }
 
+/// Unknown client sending type.
 pub struct ClientSendingUnknown;
 
+/// Known client sending type, stored as the type parameter `S`.
 pub struct ClientSending<S>(PhantomData<S>)
 where
     S: Serialize + Clone + Send + 'static;
 
+/// A client sending marker trait.
 pub(crate) trait ClientSendingConfig {}
 
 impl ClientSendingConfig for ClientSendingUnknown {}
 
 impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + Clone + Send + 'static {}
 
+/// Unknown client receiving type.
 pub struct ClientReceivingUnknown;
 
+/// Known client receiving type, stored as the type parameter `R`.
 pub struct ClientReceiving<R>(PhantomData<R>)
 where
     R: DeserializeOwned + Send + 'static;
 
+/// A client receiving marker trait.
 pub(crate) trait ClientReceivingConfig {}
 
 impl ClientReceivingConfig for ClientReceivingUnknown {}
 
 impl<R> ClientReceivingConfig for ClientReceiving<R> where R: DeserializeOwned + Send + 'static {}
 
+/// Unknown client event reporting type.
 pub struct ClientEventReportingUnknown;
 
+/// Known client event reporting type, stored as the type parameter `E`.
 pub struct ClientEventReporting<E>(E);
 
+/// Client event reporting via callbacks.
 pub struct ClientEventReportingCallbacks<R>(ClientEventCallbacks<R>)
 where
     R: DeserializeOwned + Send + 'static;
 
+/// Client event reporting via an event handler.
 pub struct ClientEventReportingHandler<R, H>
 where
     R: DeserializeOwned + Send + 'static,
     H: ClientEventHandler<R>,
 {
+    /// The event handler instance.
     handler: H,
+    /// Phantom `R` owner.
     phantom_receive: PhantomData<R>,
 }
 
+/// Client event reporting via a channel.
 pub struct ClientEventReportingChannel;
 
+/// A client event reporting marker trait.
 pub(crate) trait ClientEventReportingConfig {}
 
 impl ClientEventReportingConfig for ClientEventReportingUnknown {}
@@ -276,8 +294,11 @@ where
     RC: ClientReceivingConfig,
     EC: ClientEventReportingConfig,
 {
+    /// Phantom `SC` owner.
     phantom_send: PhantomData<SC>,
+    /// Phantom `RC` owner.
     phantom_receive: PhantomData<RC>,
+    /// The event reporting configuration.
     event_reporting: EC,
 }
 
@@ -513,7 +534,10 @@ where
     /// Disconnect from the server.
     Disconnect,
     /// Send data to the server.
-    Send { data: S },
+    Send {
+        /// The data to send.
+        data: S,
+    },
     /// Get the local client address.
     GetAddr,
     /// Get the server's address.

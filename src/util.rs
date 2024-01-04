@@ -1,3 +1,5 @@
+//! Crate-level utilities.
+
 use std::convert::TryFrom;
 use std::error;
 use std::io;

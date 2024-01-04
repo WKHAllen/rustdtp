@@ -1,3 +1,5 @@
+//! Crypto utilities.
+
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rsa::sha2::Sha256;
