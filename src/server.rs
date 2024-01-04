@@ -3,16 +3,595 @@ use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
+use async_trait::async_trait;
 use rsa::pkcs8::EncodePublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::task::JoinHandle;
+
+/// Configuration for a server's event callbacks.
+///
+/// # Events
+///
+/// There are four events for which callbacks can be registered:
+///
+///  - `connect`
+///  - `disconnect`
+///  - `receive`
+///  - `stop`
+///
+/// All callbacks are optional, and can be registered for any combination of
+/// these events. Note that each callback must be provided as a function or
+/// closure returning a heap-allocated, thread-safe future. The future will be
+/// awaited by the runtime.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let server = Server::builder()
+///     .sending::<usize>()
+///     .receiving::<String>()
+///     .with_event_callbacks(
+///         ServerEventCallbacks::new()
+///             .on_connect(move |client_id| {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Client with ID {} connected", client_id);
+///                 })
+///             })
+///             .on_disconnect(move |client_id| {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Client with ID {} disconnected", client_id);
+///                 })
+///             })
+///             .on_receive(move |client_id, data| {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Received data from client with ID {}: {}", client_id, data);
+///                 })
+///             })
+///             .on_stop(move || {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Server closed");
+///                 })
+///             })
+///     )
+///     .start(("0.0.0.0", 0))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+#[allow(clippy::type_complexity)]
+pub struct ServerEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    connect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    disconnect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    receive: Option<Box<dyn Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    stop: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+}
+
+impl<R> ServerEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Creates a new server event callbacks configuration with all callbacks
+    /// empty.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers a callback on the `connect` event.
+    pub fn on_connect<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.connect = Some(Box::new(callback));
+        self
+    }
+
+    /// Registers a callback on the `disconnect` event.
+    pub fn on_disconnect<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.disconnect = Some(Box::new(callback));
+        self
+    }
+
+    /// Registers a callback on the `receive` event.
+    pub fn on_receive<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.receive = Some(Box::new(callback));
+        self
+    }
+
+    /// Registers a callback on the `stop` event.
+    pub fn on_stop<F>(mut self, callback: F) -> Self
+    where
+        F: Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.stop = Some(Box::new(callback));
+        self
+    }
+}
+
+impl<R> Default for ServerEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    fn default() -> Self {
+        Self {
+            connect: None,
+            disconnect: None,
+            receive: None,
+            stop: None,
+        }
+    }
+}
+
+/// An event handling trait for the server.
+///
+/// # Events
+///
+/// There are four events for which methods can be implemented:
+///
+///  - `connect`
+///  - `disconnect`
+///  - `receive`
+///  - `stop`
+///
+/// All method implementations are optional, and can be registered for any
+/// combination of these events. Note that the type that implements the trait
+/// must be `Send + Sync`, and that the trait implementation must apply the
+/// `async_trait` macro.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// struct MyServerHandler;
+///
+/// #[async_trait]
+/// impl ServerEventHandler<String> for MyServerHandler {
+///     async fn on_connect(&self, client_id: usize) {
+///         // some async operation...
+///         println!("Client with ID {} connected", client_id);
+///     }
+///
+///     async fn on_disconnect(&self, client_id: usize) {
+///         // some async operation...
+///         println!("Client with ID {} disconnected", client_id);
+///     }
+///
+///     async fn on_receive(&self, client_id: usize, data: String) {
+///         // some async operation...
+///         println!("Received data from client with ID {}: {}", client_id, data);
+///     }
+///
+///     async fn on_stop(&self) {
+///         // some async operation...
+///         println!("Server closed");
+///     }
+/// }
+///
+/// let server = Server::builder()
+///     .sending::<usize>()
+///     .receiving::<String>()
+///     .with_event_handler(MyServerHandler)
+///     .start(("0.0.0.0", 0))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+#[async_trait]
+pub trait ServerEventHandler<R>
+where
+    Self: Send + Sync,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Handles the `connect` event.
+    #[allow(unused_variables)]
+    async fn on_connect(&self, client_id: usize) {}
+
+    /// Handles the `disconnect` event.
+    #[allow(unused_variables)]
+    async fn on_disconnect(&self, client_id: usize) {}
+
+    /// Handles the `receive` event.
+    #[allow(unused_variables)]
+    async fn on_receive(&self, client_id: usize, data: R) {}
+
+    /// Handles the `stop` event.
+    async fn on_stop(&self) {}
+}
+
+pub struct ServerSendingUnknown;
+
+pub struct ServerSending<S>(PhantomData<S>)
+where
+    S: Serialize + Clone + Send + 'static;
+
+pub(crate) trait ServerSendingConfig {}
+
+impl ServerSendingConfig for ServerSendingUnknown {}
+
+impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + Clone + Send + 'static {}
+
+pub struct ServerReceivingUnknown;
+
+pub struct ServerReceiving<R>(PhantomData<R>)
+where
+    R: DeserializeOwned + Send + 'static;
+
+pub(crate) trait ServerReceivingConfig {}
+
+impl ServerReceivingConfig for ServerReceivingUnknown {}
+
+impl<R> ServerReceivingConfig for ServerReceiving<R> where R: DeserializeOwned + Send + 'static {}
+
+pub struct ServerEventReportingUnknown;
+
+pub struct ServerEventReporting<E>(E);
+
+pub struct ServerEventReportingCallbacks<R>(ServerEventCallbacks<R>)
+where
+    R: DeserializeOwned + Send + 'static;
+
+pub struct ServerEventReportingHandler<R, H>
+where
+    R: DeserializeOwned + Send + 'static,
+    H: ServerEventHandler<R>,
+{
+    handler: H,
+    phantom_receive: PhantomData<R>,
+}
+
+pub struct ServerEventReportingChannel;
+
+pub(crate) trait ServerEventReportingConfig {}
+
+impl ServerEventReportingConfig for ServerEventReportingUnknown {}
+
+impl<R> ServerEventReportingConfig for ServerEventReporting<ServerEventReportingCallbacks<R>> where
+    R: DeserializeOwned + Send + 'static
+{
+}
+
+impl<R, H> ServerEventReportingConfig for ServerEventReporting<ServerEventReportingHandler<R, H>>
+where
+    R: DeserializeOwned + Send + 'static,
+    H: ServerEventHandler<R>,
+{
+}
+
+impl ServerEventReportingConfig for ServerEventReporting<ServerEventReportingChannel> {}
+
+/// A builder for the [`Server`].
+///
+/// An instance of this can be constructed using `ServerBuilder::new()` or
+/// `Server::builder()`. The configuration information exists primarily at the
+/// type-level, so it is impossible to misconfigure this.
+///
+/// This method of configuration is technically not necessary, but it is far
+/// clearer and more explicit than simply configuring the `Server` type. Plus,
+/// it provides additional ways of detecting events.
+///
+/// # Configuration
+///
+/// To configure the server, first provide the types that will be sent and
+/// received through the server using the `.sending::<...>()` and
+/// `.receiving::<...>()` methods. Then specify the way in which events will
+/// be detected. There are three methods of receiving events:
+///
+/// - via callback functions (`.with_event_callbacks(...)`)
+/// - via implementation of a handler trait (`.with_event_handler(...)`)
+/// - via a channel (`.with_event_channel()`)
+///
+/// The channel method is the most versatile, hence why it's the `Server`'s
+/// default implementation. The other methods are provided to support a
+/// greater variety of program architectures.
+///
+/// Once configured, the `.start(...)` method, which is effectively identical
+/// to the `Server::start(...)` method, can be called to start the server.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let (server, server_events) = Server::builder()
+///     .sending::<usize>()
+///     .receiving::<String>()
+///     .with_event_channel()
+///     .start(("0.0.0.0", 0))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+#[allow(private_bounds)]
+pub struct ServerBuilder<SC, RC, EC>
+where
+    SC: ServerSendingConfig,
+    RC: ServerReceivingConfig,
+    EC: ServerEventReportingConfig,
+{
+    phantom_send: PhantomData<SC>,
+    phantom_receive: PhantomData<RC>,
+    event_reporting: EC,
+}
+
+impl ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown> {
+    /// Creates a new server builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default
+    for ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown>
+{
+    fn default() -> Self {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ServerEventReportingUnknown,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<RC, EC> ServerBuilder<ServerSendingUnknown, RC, EC>
+where
+    RC: ServerReceivingConfig,
+    EC: ServerEventReportingConfig,
+{
+    /// Configures the type of data the server intends to send to clients.
+    pub fn sending<S>(self) -> ServerBuilder<ServerSending<S>, RC, EC>
+    where
+        S: Serialize + Clone + Send + 'static,
+    {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: self.event_reporting,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<SC, EC> ServerBuilder<SC, ServerReceivingUnknown, EC>
+where
+    SC: ServerSendingConfig,
+    EC: ServerEventReportingConfig,
+{
+    /// Configures the type of data the server intends to receive from
+    /// clients.
+    pub fn receiving<R>(self) -> ServerBuilder<SC, ServerReceiving<R>, EC>
+    where
+        R: DeserializeOwned + Send + 'static,
+    {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: self.event_reporting,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<S, R> ServerBuilder<ServerSending<S>, ServerReceiving<R>, ServerEventReportingUnknown>
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Sets the configuration of callbacks that will handle server events.
+    pub fn with_event_callbacks(
+        self,
+        callbacks: ServerEventCallbacks<R>,
+    ) -> ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingCallbacks<R>>,
+    >
+    where
+        R: DeserializeOwned + Send + 'static,
+    {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ServerEventReporting(ServerEventReportingCallbacks(callbacks)),
+        }
+    }
+
+    /// Sets the instance that will handle server events.
+    pub fn with_event_handler<H>(
+        self,
+        handler: H,
+    ) -> ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingHandler<R, H>>,
+    >
+    where
+        H: ServerEventHandler<R>,
+    {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ServerEventReporting(ServerEventReportingHandler {
+                handler,
+                phantom_receive: PhantomData,
+            }),
+        }
+    }
+
+    /// Configures receiving server events through a channel.
+    pub fn with_event_channel(
+        self,
+    ) -> ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingChannel>,
+    > {
+        ServerBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ServerEventReporting(ServerEventReportingChannel),
+        }
+    }
+}
+
+impl<S, R>
+    ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingCallbacks<R>>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Starts the server. This is effectively identical to
+    /// `Server::start(...)`.
+    pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
+    where
+        A: ToSocketAddrs,
+    {
+        let (server, mut server_events) = Server::<S, R>::start(addr).await?;
+        let callbacks = self.event_reporting.0 .0;
+
+        tokio::spawn(async move {
+            while let Some(event) = server_events.next().await {
+                match event {
+                    ServerEvent::Connect { client_id } => {
+                        if let Some(ref connect) = callbacks.connect {
+                            tokio::spawn((*connect)(client_id));
+                        }
+                    }
+                    ServerEvent::Disconnect { client_id } => {
+                        if let Some(ref disconnect) = callbacks.disconnect {
+                            tokio::spawn((*disconnect)(client_id));
+                        }
+                    }
+                    ServerEvent::Receive { client_id, data } => {
+                        if let Some(ref receive) = callbacks.receive {
+                            tokio::spawn((*receive)(client_id, data));
+                        }
+                    }
+                    ServerEvent::Stop => {
+                        if let Some(ref stop) = callbacks.stop {
+                            tokio::spawn((*stop)());
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(server)
+    }
+}
+
+impl<S, R, H>
+    ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingHandler<R, H>>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+    H: ServerEventHandler<R> + 'static,
+{
+    /// Starts the server. This is effectively identical to
+    /// `Server::start(...)`.
+    pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
+    where
+        A: ToSocketAddrs,
+    {
+        let (server, mut server_events) = Server::<S, R>::start(addr).await?;
+        let handler = Arc::new(self.event_reporting.0.handler);
+
+        tokio::spawn(async move {
+            while let Some(event) = server_events.next().await {
+                match event {
+                    ServerEvent::Connect { client_id } => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_connect(client_id).await;
+                        });
+                    }
+                    ServerEvent::Disconnect { client_id } => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_disconnect(client_id).await;
+                        });
+                    }
+                    ServerEvent::Receive { client_id, data } => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_receive(client_id, data).await;
+                        });
+                    }
+                    ServerEvent::Stop => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_stop().await;
+                        });
+                    }
+                }
+            }
+        });
+
+        Ok(server)
+    }
+}
+
+impl<S, R>
+    ServerBuilder<
+        ServerSending<S>,
+        ServerReceiving<R>,
+        ServerEventReporting<ServerEventReportingChannel>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Starts the server. This is effectively identical to
+    /// `Server::start(...)`.
+    pub async fn start<A>(
+        self,
+        addr: A,
+    ) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
+    where
+        A: ToSocketAddrs,
+    {
+        Server::<S, R>::start(addr).await
+    }
+}
 
 /// A command sent from the server handle to the background server task.
 pub enum ServerCommand<S>
@@ -400,6 +979,17 @@ where
     phantom_send: PhantomData<S>,
     /// Phantom value for `R`.
     phantom_receive: PhantomData<R>,
+}
+
+impl Server<(), ()> {
+    /// Constructs a server builder. Use this for a clearer, more explicit,
+    /// and more featureful server configuration. See [`ServerBuilder`] for
+    /// more information.
+    pub fn builder(
+    ) -> ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown>
+    {
+        ServerBuilder::new()
+    }
 }
 
 impl<S, R> Server<S, R>

@@ -94,7 +94,8 @@
 //! Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![warn(missing_docs)]
+// #![warn(clippy::missing_docs_in_private_items)]
 
 mod client;
 mod command_channel;
@@ -104,13 +105,18 @@ mod server;
 mod timeout;
 mod util;
 
+pub use async_trait::async_trait;
 /// Types re-exported from the crate.
 pub use tokio_stream::StreamExt as EventStreamExt;
 
 /// Types exported from the crate.
-pub use client::{Client, ClientEvent, ClientHandle};
+pub use client::{
+    Client, ClientBuilder, ClientEvent, ClientEventCallbacks, ClientEventHandler, ClientHandle,
+};
 pub use event_stream::EventStream;
-pub use server::{Server, ServerEvent, ServerHandle};
+pub use server::{
+    Server, ServerBuilder, ServerEvent, ServerEventCallbacks, ServerEventHandler, ServerHandle,
+};
 
 /// Tests using tokio.
 #[cfg(test)]
@@ -118,13 +124,19 @@ mod tests {
     use super::*;
     use crate::crypto;
     use crate::util::*;
+    use async_trait::async_trait;
+    use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
+    use tokio::sync::mpsc::{channel, Sender};
 
     /// Default amount of time to sleep, in milliseconds.
     const SLEEP_TIME: u64 = 100;
 
     /// Default server address.
     const SERVER_ADDR: (&str, u16) = ("127.0.0.1", 0);
+
+    /// Default channel size.
+    const DEFAULT_CHANNEL_SIZE: usize = 1000;
 
     /// Sleep for a desired duration.
     macro_rules! sleep {
@@ -909,5 +921,407 @@ mod tests {
         assert_impl!(ClientEvent<TestType>, Sync);
         assert_impl!(ClientEvent<TestType>, Clone);
         assert_impl!(ClientEvent<TestType>, 'static);
+    }
+
+    /// Test builder with callback configuration.
+    #[tokio::test]
+    async fn test_builder_with_callbacks() {
+        let (server_connect_sender, mut server_connect_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (server_disconnect_sender, mut server_disconnect_receiver) =
+            channel(DEFAULT_CHANNEL_SIZE);
+        let (server_receive_sender, mut server_receive_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (server_stop_sender, mut server_stop_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (client_receive_sender, mut client_receive_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (client_disconnect_sender, mut client_disconnect_receiver) =
+            channel(DEFAULT_CHANNEL_SIZE);
+
+        let mut server = Server::builder()
+            .sending::<usize>()
+            .receiving::<String>()
+            .with_event_callbacks(
+                ServerEventCallbacks::new()
+                    .on_connect(move |client_id| {
+                        let server_connect_sender = server_connect_sender.clone();
+                        Box::pin(async move {
+                            server_connect_sender.send(client_id).await.unwrap();
+                        })
+                    })
+                    .on_disconnect(move |client_id| {
+                        let server_disconnect_sender = server_disconnect_sender.clone();
+                        Box::pin(async move {
+                            server_disconnect_sender.send(client_id).await.unwrap();
+                        })
+                    })
+                    .on_receive(move |client_id, data| {
+                        let server_receive_sender = server_receive_sender.clone();
+                        Box::pin(async move {
+                            server_receive_sender.send((client_id, data)).await.unwrap();
+                        })
+                    })
+                    .on_stop(move || {
+                        let server_stop_sender = server_stop_sender.clone();
+                        Box::pin(async move {
+                            server_stop_sender.send(()).await.unwrap();
+                        })
+                    }),
+            )
+            .start(SERVER_ADDR)
+            .await
+            .unwrap();
+        sleep!();
+
+        let server_addr = server.get_addr().await.unwrap();
+        println!("Server address: {}", server_addr);
+        sleep!();
+
+        let mut client = Client::builder()
+            .sending::<String>()
+            .receiving::<usize>()
+            .with_event_callbacks(
+                ClientEventCallbacks::new()
+                    .on_receive(move |data| {
+                        let client_receive_sender = client_receive_sender.clone();
+                        Box::pin(async move {
+                            client_receive_sender.send(data).await.unwrap();
+                        })
+                    })
+                    .on_disconnect(move || {
+                        let client_disconnect_sender = client_disconnect_sender.clone();
+                        Box::pin(async move {
+                            client_disconnect_sender.send(()).await.unwrap();
+                        })
+                    }),
+            )
+            .connect(server_addr)
+            .await
+            .unwrap();
+        sleep!();
+
+        let client_addr = client.get_addr().await.unwrap();
+        println!("Client address: {}", client_addr);
+        sleep!();
+
+        let client_connect_event = server_connect_receiver.recv().await.unwrap();
+        assert_eq!(client_connect_event, 0);
+        sleep!();
+
+        let msg_from_server = 29275;
+        server.send_all(msg_from_server).await.unwrap();
+        sleep!();
+
+        let client_recv_event_1 = client_receive_receiver.recv().await.unwrap();
+        assert_eq!(client_recv_event_1, msg_from_server);
+        sleep!();
+
+        let msg_from_client = "Hello, server!".to_owned();
+        client.send(msg_from_client.clone()).await.unwrap();
+        sleep!();
+
+        let server_recv_event = server_receive_receiver.recv().await.unwrap();
+        assert_eq!(server_recv_event, (0, msg_from_client.clone()));
+        server
+            .send(server_recv_event.0, server_recv_event.1.len())
+            .await
+            .unwrap();
+        sleep!();
+
+        let client_recv_event_2 = client_receive_receiver.recv().await.unwrap();
+        assert_eq!(client_recv_event_2, msg_from_client.len());
+        sleep!();
+
+        client.disconnect().await.unwrap();
+        client_disconnect_receiver.recv().await.unwrap();
+        sleep!();
+
+        let client_disconnect_event = server_disconnect_receiver.recv().await.unwrap();
+        assert_eq!(client_disconnect_event, 0);
+        sleep!();
+
+        server.stop().await.unwrap();
+        server_stop_receiver.recv().await.unwrap();
+        sleep!();
+
+        assert!(server_connect_receiver.try_recv().is_err());
+        assert!(server_disconnect_receiver.try_recv().is_err());
+        assert!(server_receive_receiver.try_recv().is_err());
+        assert!(server_stop_receiver.try_recv().is_err());
+        assert!(client_receive_receiver.try_recv().is_err());
+        assert!(client_disconnect_receiver.try_recv().is_err());
+        sleep!();
+    }
+
+    /// Test builder with handler configuration.
+    #[tokio::test]
+    async fn test_builder_with_handler_config() {
+        struct ServerHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            connect_sender: Sender<usize>,
+            disconnect_sender: Sender<usize>,
+            receive_sender: Sender<(usize, R)>,
+            stop_sender: Sender<()>,
+        }
+
+        impl<R> ServerHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            pub fn new(
+                connect_sender: Sender<usize>,
+                disconnect_sender: Sender<usize>,
+                receive_sender: Sender<(usize, R)>,
+                stop_sender: Sender<()>,
+            ) -> Self {
+                Self {
+                    connect_sender,
+                    disconnect_sender,
+                    receive_sender,
+                    stop_sender,
+                }
+            }
+        }
+
+        #[async_trait]
+        impl<R> ServerEventHandler<R> for ServerHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            async fn on_connect(&self, client_id: usize) {
+                self.connect_sender.send(client_id).await.unwrap();
+            }
+
+            async fn on_disconnect(&self, client_id: usize) {
+                self.disconnect_sender.send(client_id).await.unwrap();
+            }
+
+            async fn on_receive(&self, client_id: usize, data: R) {
+                self.receive_sender.send((client_id, data)).await.unwrap();
+            }
+
+            async fn on_stop(&self) {
+                self.stop_sender.send(()).await.unwrap();
+            }
+        }
+
+        struct ClientHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            receive_sender: Sender<R>,
+            disconnect_sender: Sender<()>,
+        }
+
+        impl<R> ClientHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            pub fn new(receive_sender: Sender<R>, disconnect_sender: Sender<()>) -> Self {
+                Self {
+                    receive_sender,
+                    disconnect_sender,
+                }
+            }
+        }
+
+        #[async_trait]
+        impl<R> ClientEventHandler<R> for ClientHandler<R>
+        where
+            R: DeserializeOwned + Send + 'static,
+        {
+            async fn on_receive(&self, data: R) {
+                self.receive_sender.send(data).await.unwrap();
+            }
+
+            async fn on_disconnect(&self) {
+                self.disconnect_sender.send(()).await.unwrap();
+            }
+        }
+
+        let (server_connect_sender, mut server_connect_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (server_disconnect_sender, mut server_disconnect_receiver) =
+            channel(DEFAULT_CHANNEL_SIZE);
+        let (server_receive_sender, mut server_receive_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (server_stop_sender, mut server_stop_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (client_receive_sender, mut client_receive_receiver) = channel(DEFAULT_CHANNEL_SIZE);
+        let (client_disconnect_sender, mut client_disconnect_receiver) =
+            channel(DEFAULT_CHANNEL_SIZE);
+
+        let server_handler = ServerHandler::new(
+            server_connect_sender,
+            server_disconnect_sender,
+            server_receive_sender,
+            server_stop_sender,
+        );
+        let client_handler = ClientHandler::new(client_receive_sender, client_disconnect_sender);
+
+        let mut server = Server::builder()
+            .sending::<usize>()
+            .receiving::<String>()
+            .with_event_handler(server_handler)
+            .start(SERVER_ADDR)
+            .await
+            .unwrap();
+        sleep!();
+
+        let server_addr = server.get_addr().await.unwrap();
+        println!("Server address: {}", server_addr);
+        sleep!();
+
+        let mut client = Client::builder()
+            .sending::<String>()
+            .receiving::<usize>()
+            .with_event_handler(client_handler)
+            .connect(server_addr)
+            .await
+            .unwrap();
+        sleep!();
+
+        let client_addr = client.get_addr().await.unwrap();
+        println!("Client address: {}", client_addr);
+        sleep!();
+
+        let client_connect_event = server_connect_receiver.recv().await.unwrap();
+        assert_eq!(client_connect_event, 0);
+        sleep!();
+
+        let msg_from_server = 29275;
+        server.send_all(msg_from_server).await.unwrap();
+        sleep!();
+
+        let client_recv_event_1 = client_receive_receiver.recv().await.unwrap();
+        assert_eq!(client_recv_event_1, msg_from_server);
+        sleep!();
+
+        let msg_from_client = "Hello, server!".to_owned();
+        client.send(msg_from_client.clone()).await.unwrap();
+        sleep!();
+
+        let server_recv_event = server_receive_receiver.recv().await.unwrap();
+        assert_eq!(server_recv_event, (0, msg_from_client.clone()));
+        server
+            .send(server_recv_event.0, server_recv_event.1.len())
+            .await
+            .unwrap();
+        sleep!();
+
+        let client_recv_event_2 = client_receive_receiver.recv().await.unwrap();
+        assert_eq!(client_recv_event_2, msg_from_client.len());
+        sleep!();
+
+        client.disconnect().await.unwrap();
+        client_disconnect_receiver.recv().await.unwrap();
+        sleep!();
+
+        let client_disconnect_event = server_disconnect_receiver.recv().await.unwrap();
+        assert_eq!(client_disconnect_event, 0);
+        sleep!();
+
+        server.stop().await.unwrap();
+        server_stop_receiver.recv().await.unwrap();
+        sleep!();
+
+        assert!(server_connect_receiver.try_recv().is_err());
+        assert!(server_disconnect_receiver.try_recv().is_err());
+        assert!(server_receive_receiver.try_recv().is_err());
+        assert!(server_stop_receiver.try_recv().is_err());
+        assert!(client_receive_receiver.try_recv().is_err());
+        assert!(client_disconnect_receiver.try_recv().is_err());
+        sleep!();
+    }
+
+    /// Test builder with channel configuration.
+    #[tokio::test]
+    async fn test_builder_with_channel_config() {
+        let (mut server, mut server_event) = Server::builder()
+            .sending::<usize>()
+            .receiving::<String>()
+            .with_event_channel()
+            .start(SERVER_ADDR)
+            .await
+            .unwrap();
+        sleep!();
+
+        let server_addr = server.get_addr().await.unwrap();
+        println!("Server address: {}", server_addr);
+        sleep!();
+
+        let (mut client, mut client_event) = Client::builder()
+            .sending::<String>()
+            .receiving::<usize>()
+            .with_event_channel()
+            .connect(server_addr)
+            .await
+            .unwrap();
+        sleep!();
+
+        let client_addr = client.get_addr().await.unwrap();
+        println!("Client address: {}", client_addr);
+        sleep!();
+
+        let client_connect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_connect_event,
+            ServerEvent::Connect { client_id: 0 }
+        ));
+        sleep!();
+
+        let msg_from_server = 29275;
+        server.send_all(msg_from_server).await.unwrap();
+        sleep!();
+
+        let client_recv_event_1 = client_event.next().await.unwrap();
+        match client_recv_event_1 {
+            ClientEvent::Receive { data } => {
+                assert_eq!(data, msg_from_server);
+            }
+            event => panic!("expected receive event on client, instead got {:?}", event),
+        }
+        sleep!();
+
+        let msg_from_client = "Hello, server!".to_owned();
+        client.send(msg_from_client.clone()).await.unwrap();
+        sleep!();
+
+        let server_recv_event = server_event.next().await.unwrap();
+        match server_recv_event {
+            ServerEvent::Receive { client_id, data } => {
+                assert_eq!(client_id, 0);
+                assert_eq!(data, msg_from_client);
+                server.send(client_id, data.len()).await.unwrap();
+            }
+            event => panic!("expected receive event on server, instead got {:?}", event),
+        }
+        sleep!();
+
+        let client_recv_event_2 = client_event.next().await.unwrap();
+        match client_recv_event_2 {
+            ClientEvent::Receive { data } => {
+                assert_eq!(data, msg_from_client.len());
+            }
+            event => panic!("expected receive event on client, instead got {:?}", event),
+        }
+        sleep!();
+
+        client.disconnect().await.unwrap();
+        let disconnect_event = client_event.next().await.unwrap();
+        assert!(matches!(disconnect_event, ClientEvent::Disconnect));
+        sleep!();
+
+        let client_disconnect_event = server_event.next().await.unwrap();
+        assert!(matches!(
+            client_disconnect_event,
+            ServerEvent::Disconnect { client_id: 0 }
+        ));
+        sleep!();
+
+        server.stop().await.unwrap();
+        let stop_event = server_event.next().await.unwrap();
+        assert!(matches!(stop_event, ServerEvent::Stop));
+        sleep!();
+
+        assert!(client_event.next().await.is_none());
+        assert!(server_event.next().await.is_none());
+        sleep!();
     }
 }

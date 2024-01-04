@@ -3,16 +3,507 @@ use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
+use async_trait::async_trait;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
+use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::task::JoinHandle;
+
+/// Configuration for a client's event callbacks.
+///
+/// # Events
+///
+/// There are two events for which callbacks can be registered:
+///
+///  - `receive`
+///  - `disconnect`
+///
+/// Both callbacks are optional, and can be registered for any combination of
+/// these events. Note that each callback must be provided as a function or
+/// closure returning a heap-allocated, thread-safe future. The future will be
+/// awaited by the runtime.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let client = Client::builder()
+///     .sending::<String>()
+///     .receiving::<usize>()
+///     .with_event_callbacks(
+///         ClientEventCallbacks::new()
+///             .on_receive(move |data| {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Received data from server: {}", data);
+///                 })
+///             })
+///             .on_disconnect(move || {
+///                 Box::pin(async move {
+///                     // some async operation...
+///                     println!("Disconnected from server");
+///                 })
+///             })
+///     )
+///     .connect(("127.0.0.1", 29275))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+#[allow(clippy::type_complexity)]
+pub struct ClientEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    receive: Option<Box<dyn Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    disconnect: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+}
+
+impl<R> ClientEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Creates a new client event callbacks configuration with all callbacks
+    /// empty.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers a callback on the `receive` event.
+    pub fn on_receive<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.receive = Some(Box::new(callback));
+        self
+    }
+
+    /// Registers a callback on the `disconnect` event.
+    pub fn on_disconnect<F>(mut self, callback: F) -> Self
+    where
+        F: Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+    {
+        self.disconnect = Some(Box::new(callback));
+        self
+    }
+}
+
+impl<R> Default for ClientEventCallbacks<R>
+where
+    R: DeserializeOwned + Send + 'static,
+{
+    fn default() -> Self {
+        Self {
+            receive: None,
+            disconnect: None,
+        }
+    }
+}
+
+/// An event handling trait for the client.
+///
+/// # Events
+///
+/// There are two events for which methods can be implemented:
+///
+///  - `receive`
+///  - `disconnect`
+///
+/// Both method implementations are optional, and can be registered for any
+/// combination of these events. Note that the type that implements the trait
+/// must be `Send + Sync`, and that the trait implementation must apply the
+/// `async_trait` macro.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// struct MyClientHandler;
+///
+/// #[async_trait]
+/// impl ClientEventHandler<usize> for MyClientHandler {
+///     async fn on_receive(&self, data: usize) {
+///         // some async operation...
+///         println!("Received data from server: {}", data);
+///     }
+///
+///     async fn on_disconnect(&self) {
+///         // some async operation...
+///         println!("Disconnected from server");
+///     }
+/// }
+/// # }
+/// ```
+#[async_trait]
+pub trait ClientEventHandler<R>
+where
+    Self: Send + Sync,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Handles the `receive` event.
+    #[allow(unused_variables)]
+    async fn on_receive(&self, data: R) {}
+
+    /// Handles the `disconnect` event.
+    async fn on_disconnect(&self) {}
+}
+
+pub struct ClientSendingUnknown;
+
+pub struct ClientSending<S>(PhantomData<S>)
+where
+    S: Serialize + Clone + Send + 'static;
+
+pub(crate) trait ClientSendingConfig {}
+
+impl ClientSendingConfig for ClientSendingUnknown {}
+
+impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + Clone + Send + 'static {}
+
+pub struct ClientReceivingUnknown;
+
+pub struct ClientReceiving<R>(PhantomData<R>)
+where
+    R: DeserializeOwned + Send + 'static;
+
+pub(crate) trait ClientReceivingConfig {}
+
+impl ClientReceivingConfig for ClientReceivingUnknown {}
+
+impl<R> ClientReceivingConfig for ClientReceiving<R> where R: DeserializeOwned + Send + 'static {}
+
+pub struct ClientEventReportingUnknown;
+
+pub struct ClientEventReporting<E>(E);
+
+pub struct ClientEventReportingCallbacks<R>(ClientEventCallbacks<R>)
+where
+    R: DeserializeOwned + Send + 'static;
+
+pub struct ClientEventReportingHandler<R, H>
+where
+    R: DeserializeOwned + Send + 'static,
+    H: ClientEventHandler<R>,
+{
+    handler: H,
+    phantom_receive: PhantomData<R>,
+}
+
+pub struct ClientEventReportingChannel;
+
+pub(crate) trait ClientEventReportingConfig {}
+
+impl ClientEventReportingConfig for ClientEventReportingUnknown {}
+
+impl<R> ClientEventReportingConfig for ClientEventReporting<ClientEventReportingCallbacks<R>> where
+    R: DeserializeOwned + Send + 'static
+{
+}
+
+impl<R, H> ClientEventReportingConfig for ClientEventReporting<ClientEventReportingHandler<R, H>>
+where
+    R: DeserializeOwned + Send + 'static,
+    H: ClientEventHandler<R>,
+{
+}
+
+impl ClientEventReportingConfig for ClientEventReporting<ClientEventReportingChannel> {}
+
+/// A builder for the [`Client`].
+///
+/// An instance of this can be constructed using `ClientBuilder::new()` or
+/// `Client::builder()`. The configuration information exists primarily at the
+/// type-level, so it is impossible to misconfigure this.
+///
+/// This method of configuration is technically not necessary, but it is far
+/// clearer and more explicit than simply configuring the `Client` type. Plus,
+/// it provides additional ways of detecting events.
+///
+/// # Configuration
+///
+/// To configure the client, first provide the types that will be sent and
+/// received through the client using the `.sending::<...>()` and
+/// `.receiving::<...>()` methods. Then specify the way in which events will
+/// be detected. There are three methods of receiving events:
+///
+/// - via callback functions (`.with_event_callbacks(...)`)
+/// - via implementation of a handler trait (`.with_event_handler(...)`)
+/// - via a channel (`.with_event_channel()`)
+///
+/// The channel method is the most versatile, hence why it's the `Client`'s
+/// default implementation. The other methods are provided to support a
+/// greater variety of program architectures.
+///
+/// Once configured, the `.connect(...)` method, which is effectively
+/// identical to the `Client::connect(...)` method, can be called to connect
+/// to the server.
+///
+/// # Example
+///
+/// ```no_run
+/// # use rustdtp::*;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let (client, client_events) = Client::builder()
+///     .sending::<String>()
+///     .receiving::<usize>()
+///     .with_event_channel()
+///     .connect(("127.0.0.1", 29275))
+///     .await
+///     .unwrap();
+/// # }
+/// ```
+#[allow(private_bounds)]
+pub struct ClientBuilder<SC, RC, EC>
+where
+    SC: ClientSendingConfig,
+    RC: ClientReceivingConfig,
+    EC: ClientEventReportingConfig,
+{
+    phantom_send: PhantomData<SC>,
+    phantom_receive: PhantomData<RC>,
+    event_reporting: EC,
+}
+
+impl ClientBuilder<ClientSendingUnknown, ClientReceivingUnknown, ClientEventReportingUnknown> {
+    /// Creates a new client builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default
+    for ClientBuilder<ClientSendingUnknown, ClientReceivingUnknown, ClientEventReportingUnknown>
+{
+    fn default() -> Self {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ClientEventReportingUnknown,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<RC, EC> ClientBuilder<ClientSendingUnknown, RC, EC>
+where
+    RC: ClientReceivingConfig,
+    EC: ClientEventReportingConfig,
+{
+    /// Configures the type of data the client intends to send to the server.
+    pub fn sending<S>(self) -> ClientBuilder<ClientSending<S>, RC, EC>
+    where
+        S: Serialize + Clone + Send + 'static,
+    {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: self.event_reporting,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<SC, EC> ClientBuilder<SC, ClientReceivingUnknown, EC>
+where
+    SC: ClientSendingConfig,
+    EC: ClientEventReportingConfig,
+{
+    /// Configures the type of data the client intends to receive from the
+    /// server.
+    pub fn receiving<R>(self) -> ClientBuilder<SC, ClientReceiving<R>, EC>
+    where
+        R: DeserializeOwned + Send + 'static,
+    {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: self.event_reporting,
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<S, R> ClientBuilder<ClientSending<S>, ClientReceiving<R>, ClientEventReportingUnknown>
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Sets the configuration of callbacks that will handle client events.
+    pub fn with_event_callbacks(
+        self,
+        callbacks: ClientEventCallbacks<R>,
+    ) -> ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingCallbacks<R>>,
+    > {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ClientEventReporting(ClientEventReportingCallbacks(callbacks)),
+        }
+    }
+
+    /// Sets the instance that will handle client events.
+    pub fn with_event_handler<H>(
+        self,
+        handler: H,
+    ) -> ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingHandler<R, H>>,
+    >
+    where
+        H: ClientEventHandler<R>,
+    {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ClientEventReporting(ClientEventReportingHandler {
+                handler,
+                phantom_receive: PhantomData,
+            }),
+        }
+    }
+
+    /// Configures receiving client events through a channel.
+    pub fn with_event_channel(
+        self,
+    ) -> ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingChannel>,
+    > {
+        ClientBuilder {
+            phantom_send: PhantomData,
+            phantom_receive: PhantomData,
+            event_reporting: ClientEventReporting(ClientEventReportingChannel),
+        }
+    }
+}
+
+impl<S, R>
+    ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingCallbacks<R>>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Connects to a server. This is effectively identical to
+    /// `Client::connect(...)`.
+    pub async fn connect<A>(self, addr: A) -> io::Result<ClientHandle<S>>
+    where
+        A: ToSocketAddrs,
+    {
+        let (client, mut client_events) = Client::<S, R>::connect(addr).await?;
+        let callbacks = self.event_reporting.0 .0;
+
+        tokio::spawn(async move {
+            while let Some(event) = client_events.next().await {
+                match event {
+                    ClientEvent::Receive { data } => {
+                        if let Some(ref receive) = callbacks.receive {
+                            tokio::spawn((*receive)(data));
+                        }
+                    }
+                    ClientEvent::Disconnect => {
+                        if let Some(ref disconnect) = callbacks.disconnect {
+                            tokio::spawn((*disconnect)());
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(client)
+    }
+}
+
+impl<S, R, H>
+    ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingHandler<R, H>>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+    H: ClientEventHandler<R> + 'static,
+{
+    /// Connects to a server. This is effectively identical to
+    /// `Client::connect(...)`.
+    pub async fn connect<A>(self, addr: A) -> io::Result<ClientHandle<S>>
+    where
+        A: ToSocketAddrs,
+    {
+        let (client, mut client_events) = Client::<S, R>::connect(addr).await?;
+        let handler = Arc::new(self.event_reporting.0.handler);
+
+        tokio::spawn(async move {
+            while let Some(event) = client_events.next().await {
+                match event {
+                    ClientEvent::Receive { data } => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_receive(data).await;
+                        });
+                    }
+                    ClientEvent::Disconnect => {
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            handler.on_disconnect().await;
+                        });
+                    }
+                }
+            }
+        });
+
+        Ok(client)
+    }
+}
+
+impl<S, R>
+    ClientBuilder<
+        ClientSending<S>,
+        ClientReceiving<R>,
+        ClientEventReporting<ClientEventReportingChannel>,
+    >
+where
+    S: Serialize + Clone + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    /// Connects to a server. This is effectively identical to
+    /// `Client::connect(...)`.
+    pub async fn connect<A>(
+        self,
+        addr: A,
+    ) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
+    where
+        A: ToSocketAddrs,
+    {
+        Client::<S, R>::connect(addr).await
+    }
+}
 
 /// A command sent from the client handle to the background client task.
 pub enum ClientCommand<S>
@@ -251,6 +742,17 @@ where
     phantom_send: PhantomData<S>,
     /// Phantom value for `R`.
     phantom_receive: PhantomData<R>,
+}
+
+impl Client<(), ()> {
+    /// Constructs a client builder. Use this for a clearer, more explicit,
+    /// and more featureful client configuration. See [`ClientBuilder`] for
+    /// more information.
+    pub fn builder(
+    ) -> ClientBuilder<ClientSendingUnknown, ClientReceivingUnknown, ClientEventReportingUnknown>
+    {
+        ClientBuilder::new()
+    }
 }
 
 impl<S, R> Client<S, R>
