@@ -239,14 +239,14 @@ pub struct ServerSendingUnknown;
 /// Known server sending type, stored as the type parameter `S`.
 pub struct ServerSending<S>(PhantomData<S>)
 where
-    S: Serialize + Clone + Send + 'static;
+    S: Serialize + Send + 'static;
 
 /// A server sending marker trait.
 pub(crate) trait ServerSendingConfig {}
 
 impl ServerSendingConfig for ServerSendingUnknown {}
 
-impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + Clone + Send + 'static {}
+impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + Send + 'static {}
 
 /// Unknown server receiving type.
 pub struct ServerReceivingUnknown;
@@ -395,7 +395,7 @@ where
     /// Configures the type of data the server intends to send to clients.
     pub fn sending<S>(self) -> ServerBuilder<ServerSending<S>, RC, EC>
     where
-        S: Serialize + Clone + Send + 'static,
+        S: Serialize + Send + 'static,
     {
         ServerBuilder {
             phantom_send: PhantomData,
@@ -428,7 +428,7 @@ where
 #[allow(private_bounds)]
 impl<S, R> ServerBuilder<ServerSending<S>, ServerReceiving<R>, ServerEventReportingUnknown>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Sets the configuration of callbacks that will handle server events.
@@ -495,7 +495,7 @@ impl<S, R>
         ServerEventReporting<ServerEventReportingCallbacks<R>>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Starts the server. This is effectively identical to
@@ -545,7 +545,7 @@ impl<S, R, H>
         ServerEventReporting<ServerEventReportingHandler<R, H>>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
     H: ServerEventHandler<R> + 'static,
 {
@@ -600,7 +600,7 @@ impl<S, R>
         ServerEventReporting<ServerEventReportingChannel>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Starts the server. This is effectively identical to
@@ -619,7 +619,7 @@ where
 /// A command sent from the server handle to the background server task.
 pub enum ServerCommand<S>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
 {
     /// Stop the server.
     Stop,
@@ -666,14 +666,11 @@ pub enum ServerCommandReturn {
 }
 
 /// A command sent from the server background task to a client background task.
-pub enum ServerClientCommand<S>
-where
-    S: Serialize + Clone + Send + 'static,
-{
+pub enum ServerClientCommand {
     /// Send data to the client.
     Send {
-        /// The data to send.
-        data: S,
+        /// The serialized data to send.
+        data: Arc<[u8]>,
     },
     /// Get the address of the client.
     GetAddr,
@@ -750,7 +747,7 @@ where
 /// A handle to the server.
 pub struct ServerHandle<S>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
 {
     /// The channel through which commands can be sent to the background task.
     server_command_sender: CommandChannelSender<ServerCommand<S>, ServerCommandReturn>,
@@ -760,7 +757,7 @@ where
 
 impl<S> ServerHandle<S>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
 {
     /// Stop the server, disconnect all clients, and shut down all network interfaces.
     ///
@@ -1012,7 +1009,7 @@ where
 /// ```
 pub struct Server<S, R>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Phantom value for `S`.
@@ -1034,7 +1031,7 @@ impl Server<(), ()> {
 
 impl<S, R> Server<S, R>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Start a socket server.
@@ -1085,18 +1082,17 @@ where
 }
 
 /// The server client loop. Handles received data and commands.
-async fn server_client_loop<S, R>(
+async fn server_client_loop<R>(
     client_id: usize,
     mut socket: TcpStream,
     aes_key: [u8; AES_KEY_SIZE],
     server_client_event_sender: Sender<ServerEvent<R>>,
     mut client_command_receiver: CommandChannelReceiver<
-        ServerClientCommand<S>,
+        ServerClientCommand,
         ServerClientCommandReturn,
     >,
 ) -> io::Result<()>
 where
-    S: Serialize + Clone + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     // Buffer in which to receive the size portion of a message
@@ -1167,8 +1163,7 @@ where
                         match client_command {
                             ServerClientCommand::Send { data } => {
                                 let value = 'val: {
-                                    // Serialize the data
-                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
+                                    let data_buffer = data.to_vec();
                                     // Encrypt the serialized data
                                     let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer).await), 'val);
                                     // Encode the message size to a buffer
@@ -1250,17 +1245,16 @@ where
 }
 
 /// Starts a server client loop in the background.
-async fn server_client_handler<S, R>(
+async fn server_client_handler<R>(
     client_id: usize,
     mut socket: TcpStream,
     server_client_event_sender: Sender<ServerEvent<R>>,
     client_cleanup_sender: Sender<usize>,
 ) -> io::Result<(
-    CommandChannelSender<ServerClientCommand<S>, ServerClientCommandReturn>,
+    CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     JoinHandle<io::Result<()>>,
 )>
 where
-    S: Serialize + Clone + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     // Generate RSA keys
@@ -1359,12 +1353,12 @@ async fn server_loop<S, R>(
     mut server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
     client_command_senders: &mut HashMap<
         usize,
-        CommandChannelSender<ServerClientCommand<S>, ServerClientCommandReturn>,
+        CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     >,
     client_join_handles: &mut HashMap<usize, JoinHandle<io::Result<()>>>,
 ) -> io::Result<()>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     // ID assigned to the next client
@@ -1438,13 +1432,25 @@ where
                             },
                             ServerCommand::Send { client_id, data } => {
                                 let value = match client_command_senders.get_mut(&client_id) {
-                                    Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::Send { data }).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
-                                            Ok(())
-                                        },
+                                    Some(client_command_sender) => {
+                                        // Pre-serialize the data so that it only needs to be serialized once when
+                                        // sending to multiple clients
+                                        match into_generic_io_result(serde_json::to_vec(&data)) {
+                                            Ok(serialized_data) => {
+                                                // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                                let shareable_data = Arc::<[u8]>::from(serialized_data);
+
+                                                match client_command_sender.send_command(ServerClientCommand::Send { data: shareable_data }).await {
+                                                    Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
+                                                    Err(_e) => {
+                                                        // The channel is closed, and the client has probably been
+                                                        // disconnected, so the error can be ignored
+                                                        Ok(())
+                                                    },
+                                                }
+                                            }
+                                            Err(e) => Err(e),
+                                        }
                                     },
                                     None => generic_io_error("invalid client"),
                                 };
@@ -1454,22 +1460,35 @@ where
                                 _ = server_command_receiver.command_return(ServerCommandReturn::Send(value)).await;
                             },
                             ServerCommand::SendAll { data } => {
-                                for (_client_id, client_command_sender) in client_command_senders.iter_mut() {
-                                    let data_clone = data.clone();
+                                let value = {
+                                    // Pre-serialize the data so that it only needs to be serialized once when sending to
+                                    // multiple clients
+                                    match into_generic_io_result(serde_json::to_vec(&data)) {
+                                        Ok(serialized_data) => {
+                                            // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                            let shareable_data = Arc::<[u8]>::from(serialized_data);
 
-                                    match client_command_sender.send_command(ServerClientCommand::Send { data: data_clone }).await {
-                                        Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                        Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
-                                            Ok(())
-                                        },
-                                    }.unwrap();
+                                            let send_futures = client_command_senders.iter_mut().map(|(_client_id, client_command_sender)| async {
+                                                match client_command_sender.send_command(ServerClientCommand::Send { data: Arc::clone(&shareable_data) }).await {
+                                                    Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
+                                                    Err(_e) => {
+                                                        // The channel is closed, and the client has probably been
+                                                        // disconnected, so the error can be ignored
+                                                        Ok(())
+                                                    }
+                                                }
+                                            });
+
+                                            let resolved = futures::future::join_all(send_futures).await;
+                                            resolved.into_iter().collect::<io::Result<Vec<_>>>().map(|_| ())
+                                        }
+                                        Err(e) => Err(e),
+                                    }
                                 };
 
                                 // If a command fails to send, the client has probably disconnected,
                                 // and the error can be ignored
-                                _ = server_command_receiver.command_return(ServerCommandReturn::SendAll(Ok(()))).await;
+                                _ = server_command_receiver.command_return(ServerCommandReturn::SendAll(value)).await;
                             },
                             ServerCommand::GetAddr => {
                                 // Get the server listener's address
@@ -1567,13 +1586,13 @@ async fn server_handler<S, R>(
     server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
 ) -> io::Result<()>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     // Collection of channels for sending commands from the background server task to a background client task
     let mut client_command_senders: HashMap<
         usize,
-        CommandChannelSender<ServerClientCommand<S>, ServerClientCommandReturn>,
+        CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     > = HashMap::new();
     // Background client task join handles
     let mut client_join_handles: HashMap<usize, JoinHandle<io::Result<()>>> = HashMap::new();
@@ -1589,16 +1608,19 @@ where
     .await;
 
     // Send a remove command to all clients
-    for (_client_id, mut client_command_sender) in client_command_senders {
-        // If a command fails to send, the client has probably disconnected already,
-        // and the error can be ignored
-        _ = client_command_sender
-            .send_command(ServerClientCommand::Remove)
-            .await;
-    }
+    futures::future::join_all(client_command_senders.into_values().map(
+        |mut client_command_sender| async move {
+            // If a command fails to send, the client has probably disconnected already,
+            // and the error can be ignored
+            _ = client_command_sender
+                .send_command(ServerClientCommand::Remove)
+                .await;
+        },
+    ))
+    .await;
 
     // Join all background client tasks before exiting
-    for (_client_id, handle) in client_join_handles {
+    futures::future::join_all(client_join_handles.into_values().map(|handle| async move {
         if let Err(e) = handle.await.unwrap() {
             if cfg!(test) {
                 // If testing, fail
@@ -1607,7 +1629,12 @@ where
                 // If not testing, ignore client handler errors
             }
         }
-    }
+
+        Ok(())
+    }))
+    .await
+    .into_iter()
+    .collect::<io::Result<Vec<_>>>()?;
 
     // Send a stop event, ignoring send errors
     if let Err(_e) = server_event_sender.send(ServerEvent::Stop).await {}

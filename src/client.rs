@@ -173,14 +173,14 @@ pub struct ClientSendingUnknown;
 /// Known client sending type, stored as the type parameter `S`.
 pub struct ClientSending<S>(PhantomData<S>)
 where
-    S: Serialize + Clone + Send + 'static;
+    S: Serialize + Send + 'static;
 
 /// A client sending marker trait.
 pub(crate) trait ClientSendingConfig {}
 
 impl ClientSendingConfig for ClientSendingUnknown {}
 
-impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + Clone + Send + 'static {}
+impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + Send + 'static {}
 
 /// Unknown client receiving type.
 pub struct ClientReceivingUnknown;
@@ -330,7 +330,7 @@ where
     /// Configures the type of data the client intends to send to the server.
     pub fn sending<S>(self) -> ClientBuilder<ClientSending<S>, RC, EC>
     where
-        S: Serialize + Clone + Send + 'static,
+        S: Serialize + Send + 'static,
     {
         ClientBuilder {
             phantom_send: PhantomData,
@@ -363,7 +363,7 @@ where
 #[allow(private_bounds)]
 impl<S, R> ClientBuilder<ClientSending<S>, ClientReceiving<R>, ClientEventReportingUnknown>
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Sets the configuration of callbacks that will handle client events.
@@ -427,7 +427,7 @@ impl<S, R>
         ClientEventReporting<ClientEventReportingCallbacks<R>>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Connects to a server. This is effectively identical to
@@ -467,7 +467,7 @@ impl<S, R, H>
         ClientEventReporting<ClientEventReportingHandler<R, H>>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
     H: ClientEventHandler<R> + 'static,
 {
@@ -510,7 +510,7 @@ impl<S, R>
         ClientEventReporting<ClientEventReportingChannel>,
     >
 where
-    S: Serialize + Clone + Send + 'static,
+    S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
     /// Connects to a server. This is effectively identical to
