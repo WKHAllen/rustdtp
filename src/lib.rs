@@ -127,6 +127,7 @@ mod tests {
     use async_trait::async_trait;
     use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
+    use std::sync::Arc;
     use tokio::sync::mpsc::{channel, Sender};
 
     /// Default amount of time to sleep, in milliseconds.
@@ -207,35 +208,39 @@ mod tests {
     async fn test_crypto() {
         let rsa_message = "Hello, RSA!";
         let (public_key, private_key) = crypto::rsa_keys().await.unwrap();
-        let rsa_encrypted =
-            crypto::rsa_encrypt(public_key.clone(), rsa_message.as_bytes().to_vec())
+        let rsa_encrypted = Arc::<[u8]>::from(
+            crypto::rsa_encrypt(public_key.clone(), rsa_message.as_bytes().into())
                 .await
-                .unwrap();
-        let rsa_decrypted = crypto::rsa_decrypt(private_key.clone(), rsa_encrypted.clone())
+                .unwrap(),
+        );
+        let rsa_decrypted = crypto::rsa_decrypt(private_key.clone(), Arc::clone(&rsa_encrypted))
             .await
             .unwrap();
         let rsa_decrypted_message = std::str::from_utf8(&rsa_decrypted).unwrap();
         assert_eq!(rsa_decrypted_message, rsa_message);
-        assert_ne!(rsa_encrypted, rsa_message.as_bytes());
+        assert_ne!(&*rsa_encrypted, rsa_message.as_bytes());
 
         let aes_message = "Hello, AES!";
         let key = crypto::aes_key().await;
-        let aes_encrypted = crypto::aes_encrypt(key, aes_message.as_bytes().to_vec())
-            .await
-            .unwrap();
-        let aes_decrypted = crypto::aes_decrypt(key, aes_encrypted.clone())
+        let aes_encrypted = Arc::<[u8]>::from(
+            crypto::aes_encrypt(key, aes_message.as_bytes().into())
+                .await
+                .unwrap(),
+        );
+        let aes_decrypted = crypto::aes_decrypt(key, Arc::clone(&aes_encrypted))
             .await
             .unwrap();
         let aes_decrypted_message = std::str::from_utf8(&aes_decrypted).unwrap();
         assert_eq!(aes_decrypted_message, aes_message);
-        assert_ne!(aes_encrypted, aes_message.as_bytes());
+        assert_ne!(&*aes_encrypted, aes_message.as_bytes());
 
-        let encrypted_key = crypto::rsa_encrypt(public_key, key.to_vec()).await.unwrap();
-        let decrypted_key = crypto::rsa_decrypt(private_key, encrypted_key.clone())
+        let encrypted_key =
+            Arc::<[u8]>::from(crypto::rsa_encrypt(public_key, key.into()).await.unwrap());
+        let decrypted_key = crypto::rsa_decrypt(private_key, Arc::clone(&encrypted_key))
             .await
             .unwrap();
         assert_eq!(decrypted_key, key);
-        assert_ne!(encrypted_key, key);
+        assert_ne!(&*encrypted_key, key);
     }
 
     /// Test server creation and serving.

@@ -4,6 +4,7 @@ use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rsa::sha2::Sha256;
 use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
+use std::sync::Arc;
 
 /// The number of bits to use for an RSA key.
 pub const RSA_KEY_SIZE: usize = 2048;
@@ -88,7 +89,7 @@ pub async fn rsa_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
 /// `plaintext`: the data to encrypt.
 ///
 /// Returns a result containing the encrypted data, or the error variant if an error occurred while encrypting.
-pub async fn rsa_encrypt(public_key: RsaPublicKey, plaintext: Vec<u8>) -> Result<Vec<u8>> {
+pub async fn rsa_encrypt(public_key: RsaPublicKey, plaintext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::thread_rng();
         let padding = Oaep::new::<Sha256>();
@@ -106,7 +107,7 @@ pub async fn rsa_encrypt(public_key: RsaPublicKey, plaintext: Vec<u8>) -> Result
 /// `ciphertext`: the data to decrypt.
 ///
 /// Returns a result containing the decrypted data, or the error variant if an error occurred while decrypting.
-pub async fn rsa_decrypt(private_key: RsaPrivateKey, ciphertext: Vec<u8>) -> Result<Vec<u8>> {
+pub async fn rsa_decrypt(private_key: RsaPrivateKey, ciphertext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let padding = Oaep::new::<Sha256>();
         let plaintext = private_key.decrypt(padding, &ciphertext[..])?;
@@ -135,7 +136,7 @@ pub async fn aes_key() -> [u8; AES_KEY_SIZE] {
 /// `plaintext`: the data to encrypt.
 ///
 /// Returns a result containing the encrypted data with the nonce prepended, or the error variant if an error occurred while encrypting.
-pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Vec<u8>) -> Result<Vec<u8>> {
+pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
         let nonce_slice: [u8; AES_NONCE_SIZE] = rand::random();
@@ -159,7 +160,7 @@ pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Vec<u8>) -> Result<
 /// Returns a result containing the decrypted data, or the error variant if an error occurred while decrypting.
 pub async fn aes_decrypt(
     key: [u8; AES_KEY_SIZE],
-    ciphertext_with_nonce: Vec<u8>,
+    ciphertext_with_nonce: Arc<[u8]>,
 ) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();

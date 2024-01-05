@@ -1134,7 +1134,7 @@ where
                 }
 
                 // Decrypt the data
-                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer).await {
+                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
                     Ok(val) => Ok(val),
                     Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
                 }?;
@@ -1163,9 +1163,8 @@ where
                         match client_command {
                             ServerClientCommand::Send { data } => {
                                 let value = 'val: {
-                                    let data_buffer = data.to_vec();
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer).await), 'val);
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data).await), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -1314,7 +1313,8 @@ where
     }
 
     // Decrypt the AES key
-    let aes_key_decrypted = into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer).await)?;
+    let aes_key_decrypted =
+        into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer.into()).await)?;
 
     // Assert that the AES key is the correct size
     let aes_key: [u8; AES_KEY_SIZE] = match aes_key_decrypted.try_into() {

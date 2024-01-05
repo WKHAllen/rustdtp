@@ -847,8 +847,7 @@ where
         // Generate AES key
         let aes_key = aes_key().await;
         // Encrypt AES key with RSA public key
-        let aes_key_encrypted =
-            into_generic_io_result(rsa_encrypt(rsa_pub, aes_key.to_vec()).await)?;
+        let aes_key_encrypted = into_generic_io_result(rsa_encrypt(rsa_pub, aes_key.into()).await)?;
         // Create the buffer containing the AES key and its size
         let mut aes_key_buffer = encode_message_size(aes_key_encrypted.len()).to_vec();
         // Extend the buffer with the AES key
@@ -942,7 +941,7 @@ where
                 }
 
                 // Decrypt the data
-                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer).await {
+                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
                     Ok(val) => Ok(val),
                     Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
                 }?;
@@ -987,7 +986,7 @@ where
                                     // Serialize the data
                                     let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer).await), 'val);
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer.into()).await), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
