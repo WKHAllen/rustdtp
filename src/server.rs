@@ -431,7 +431,13 @@ where
     S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
-    /// Sets the configuration of callbacks that will handle server events.
+    /// Configures the server to receive events via callbacks.
+    ///
+    /// Using callbacks is typically considered an anti-pattern in Rust, so
+    /// this should only be used if it makes sense in the context of the
+    /// design of the code utilizing this API.
+    ///
+    /// See [`ServerEventCallbacks`] for more information and examples.
     pub fn with_event_callbacks(
         self,
         callbacks: ServerEventCallbacks<R>,
@@ -450,7 +456,12 @@ where
         }
     }
 
-    /// Sets the instance that will handle server events.
+    /// Configures the server to receive events via a trait implementation.
+    ///
+    /// This provides an approach to event handling that closely aligns with
+    /// object-oriented practices.
+    ///
+    /// See [`ServerEventHandler`] for more information and examples.
     pub fn with_event_handler<H>(
         self,
         handler: H,
@@ -472,7 +483,12 @@ where
         }
     }
 
-    /// Configures receiving server events through a channel.
+    /// Configures the server to receive events via a channel.
+    ///
+    /// This is the most versatile event handling strategy. In fact, all other
+    /// event handling options use this implementation under the hood.
+    /// Because of its flexibility, this will typically be the desired
+    /// approach.
     pub fn with_event_channel(
         self,
     ) -> ServerBuilder<
@@ -696,10 +712,16 @@ pub enum ServerClientCommandReturn {
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create the server
-///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
+///     let (mut server, mut server_events) = Server::builder()
+///         .sending::<()>()
+///         .receiving::<String>()
+///         .with_event_channel()
+///         .start(("0.0.0.0", 0))
+///         .await
+///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_event.next().await {
+///     while let Some(event) = server_events.next().await {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -769,10 +791,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<(), String>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<String>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Wait for events until a client requests the server be stopped
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_events.next().await {
     ///         match event {
     ///             // Stop the server when a client requests it be stopped
     ///             ServerEvent::Receive { client_id, data } => {
@@ -787,7 +815,7 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_events.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
     pub async fn stop(mut self) -> io::Result<()> {
@@ -812,10 +840,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, send a greeting
     ///             ServerEvent::Connect { client_id } => {
@@ -846,10 +880,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<String, ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, notify all clients
     ///             ServerEvent::Connect { client_id } => {
@@ -878,7 +918,13 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Get the server address
     ///     let addr = server.get_addr().await.unwrap();
@@ -905,10 +951,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, get their address
     ///             ServerEvent::Connect { client_id } => {
@@ -939,10 +991,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the server
-    ///     let (mut server, mut server_event) = Server::<String, i32>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<i32>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_event.next().await {
+    ///     while let Some(event) = server_events.next().await {
     ///         match event {
     ///             // Disconnect a client if they send an even number
     ///             ServerEvent::Receive { client_id, data } => {
@@ -957,7 +1015,7 @@ where
     ///     }
     ///
     ///     // The last event should be a stop event
-    ///     assert!(matches!(server_event.next().await.unwrap(), ServerEvent::Stop));
+    ///     assert!(matches!(server_events.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
     pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
@@ -984,10 +1042,16 @@ where
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create a server that receives strings and returns the length of each string
-///     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+///     let (mut server, mut server_events) = Server::builder()
+///         .sending::<usize>()
+///         .receiving::<String>()
+///         .with_event_channel()
+///         .start(("0.0.0.0", 0))
+///         .await
+///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_event.next().await {
+///     while let Some(event) = server_events.next().await {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -1045,7 +1109,13 @@ where
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let (mut server, mut server_event) = Server::<(), ()>::start(("0.0.0.0", 0)).await.unwrap();
+    ///     let (mut server, mut server_events) = Server::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .start(("0.0.0.0", 0))
+    ///         .await
+    ///         .unwrap();
     /// }
     /// ```
     ///

@@ -11,33 +11,29 @@ The Data Transfer Protocol (DTP) is a larger project to make ergonomic network p
 Add the package in `Cargo.toml`:
 
 ```toml
-rustdtp = { version = "*", features = ["rt-tokio"] }
+rustdtp = "0.5"
 ```
-
-## Selecting a runtime
-
-The protocol can be used with both the [`tokio`](https://github.com/tokio-rs/tokio) and [`async-std`](https://github.com/async-rs/async-std) runtimes, as well as in purely synchronous environments. Each implementation is gated behind a feature:
-
-- `rt-tokio`: the tokio implementation, available as `rustdtp::rt_tokio`
-- `rt-async-std`: the async-std implementation, available as `rustdtp::rt_async_std`
-- `rt-sync`: the synchronous implementation, available as `rustdtp::rt_sync`
-
-Multiple features can be activated at the same time, though most times this is not useful.
 
 ## Creating a server
 
 A server can be built using the `Server` implementation:
 
 ```rust
-use rustdtp::rt_tokio::*;
+use rustdtp::*;
 
 #[tokio::main]
 async fn main() {
     // Create a server that receives strings and returns the length of each string
-    let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+    let (mut server, mut server_events) = Server::builder()
+        .sending::<usize>()
+        .receiving::<String>()
+        .with_event_channel()
+        .start(("0.0.0.0", 0))
+        .await
+        .unwrap();
 
     // Iterate over events
-    while let Some(event) = server_event.next().await {
+    while let Some(event) = server_events.next().await {
         match event {
             ServerEvent::Connect { client_id } => {
                 println!("Client with ID {} connected", client_id);
@@ -63,19 +59,25 @@ async fn main() {
 A client can be built using the `Client` implementation:
 
 ```rust
-use rustdtp::rt_tokio::*;
+use rustdtp::*;
 
 #[tokio::main]
 async fn main() {
     // Create a client that sends a message to the server and receives the length of the message
-    let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+    let (mut client, mut client_events) = Client::builder()
+        .sending::<String>()
+        .receiving::<usize>()
+        .with_event_channel()
+        .connect(("127.0.0.1", 29275))
+        .await
+        .unwrap();
 
     // Send a message to the server
     let msg = "Hello, server!".to_owned();
     client.send(msg.clone()).await.unwrap();
 
     // Receive the response
-    match client_event.next().await.unwrap() {
+    match client_events.next().await.unwrap() {
         ClientEvent::Receive { data } => {
             // Validate the response
             println!("Received response from server: {}", data);

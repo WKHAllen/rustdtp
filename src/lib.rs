@@ -11,18 +11,8 @@
 //! Add the package in `Cargo.toml`:
 //!
 //! ```toml
-//! rustdtp = { version = "*", features = ["rt-tokio"] }
+//! rustdtp = "0.5"
 //! ```
-//!
-//! ## Selecting a runtime
-//!
-//! The protocol can be used with both the [`tokio`](https://github.com/tokio-rs/tokio) and [`async-std`](https://github.com/async-rs/async-std) runtimes, as well as in purely synchronous environments. Each implementation is gated behind a feature:
-//!
-//! - `rt-tokio`: the tokio implementation, available as `rustdtp`
-//! - `rt-async-std`: the async-std implementation, available as `rustdtp::rt_async_std`
-//! - `rt-sync`: the synchronous implementation, available as `rustdtp::rt_sync`
-//!
-//! Multiple features can be activated at the same time, though most times this is not useful.
 //!
 //! ## Creating a server
 //!
@@ -34,10 +24,16 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // Create a server that receives strings and returns the length of each string
-//!     let (mut server, mut server_event) = Server::<usize, String>::start(("0.0.0.0", 0)).await.unwrap();
+//!     let (mut server, mut server_events) = Server::builder()
+//!         .sending::<usize>()
+//!         .receiving::<String>()
+//!         .with_event_channel()
+//!         .start(("0.0.0.0", 0))
+//!         .await
+//!         .unwrap();
 //!
 //!     // Iterate over events
-//!     while let Some(event) = server_event.next().await {
+//!     while let Some(event) = server_events.next().await {
 //!         match event {
 //!             ServerEvent::Connect { client_id } => {
 //!                 println!("Client with ID {} connected", client_id);
@@ -68,14 +64,20 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // Create a client that sends a message to the server and receives the length of the message
-//!     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+//!     let (mut client, mut client_events) = Client::builder()
+//!         .sending::<String>()
+//!         .receiving::<usize>()
+//!         .with_event_channel()
+//!         .connect(("127.0.0.1", 29275))
+//!         .await
+//!         .unwrap();
 //!
 //!     // Send a message to the server
 //!     let msg = "Hello, server!".to_owned();
 //!     client.send(msg.clone()).await.unwrap();
 //!
 //!     // Receive the response
-//!     match client_event.next().await.unwrap() {
+//!     match client_events.next().await.unwrap() {
 //!         ClientEvent::Receive { data } => {
 //!             // Validate the response
 //!             println!("Received response from server: {}", data);
@@ -246,39 +248,39 @@ mod tests {
     /// Test server creation and serving.
     #[tokio::test]
     async fn test_server_serve() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         println!("Server address: {}", server.get_addr().await.unwrap());
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(server_event.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test getting server and client addresses.
     #[tokio::test]
     async fn test_addresses() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -296,11 +298,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -308,19 +310,19 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test sending messages between server and client.
     #[tokio::test]
     async fn test_send() {
-        let (mut server, mut server_event) =
+        let (mut server, mut server_events) =
             Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
@@ -328,7 +330,7 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
+        let (mut client, mut client_events) =
             Client::<String, usize>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -336,7 +338,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -347,7 +349,7 @@ mod tests {
         server.send_all(msg_from_server).await.unwrap();
         sleep!();
 
-        let client_recv_event_1 = client_event.next().await.unwrap();
+        let client_recv_event_1 = client_events.next().await.unwrap();
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
@@ -360,7 +362,7 @@ mod tests {
         client.send(msg_from_client.clone()).await.unwrap();
         sleep!();
 
-        let server_recv_event = server_event.next().await.unwrap();
+        let server_recv_event = server_events.next().await.unwrap();
         match server_recv_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -371,7 +373,7 @@ mod tests {
         }
         sleep!();
 
-        let client_recv_event_2 = client_event.next().await.unwrap();
+        let client_recv_event_2 = client_events.next().await.unwrap();
         match client_recv_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client.len());
@@ -381,11 +383,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -393,19 +395,19 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test sending large random messages between server and client.
     #[tokio::test]
     async fn test_large_send() {
-        let (mut server, mut server_event) =
+        let (mut server, mut server_events) =
             Server::<u128, u128>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
@@ -413,7 +415,7 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
+        let (mut client, mut client_events) =
             Client::<u128, u128>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -421,7 +423,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -436,7 +438,7 @@ mod tests {
         server.send_all(large_msg_from_server).await.unwrap();
         sleep!();
 
-        let client_large_msg_event = client_event.next().await.unwrap();
+        let client_large_msg_event = client_events.next().await.unwrap();
         match client_large_msg_event {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, large_msg_from_server);
@@ -448,7 +450,7 @@ mod tests {
         client.send(large_msg_from_client).await.unwrap();
         sleep!();
 
-        let server_large_msg_event = server_event.next().await.unwrap();
+        let server_large_msg_event = server_events.next().await.unwrap();
         match server_large_msg_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -459,11 +461,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -471,26 +473,26 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test sending numerous messages
     #[tokio::test]
     async fn test_sending_numerous_messages() {
-        let (mut server, mut server_event) = Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<u16, u16>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) =
+        let (mut client, mut client_events) =
             Client::<u16, u16>::connect(server_addr).await.unwrap();
         sleep!();
 
@@ -498,7 +500,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -521,7 +523,7 @@ mod tests {
         sleep!();
 
         for &server_message in &server_messages {
-            let server_recv_event = server_event.next().await.unwrap();
+            let server_recv_event = server_events.next().await.unwrap();
             match server_recv_event {
                 ServerEvent::Receive { client_id, data } => {
                     assert_eq!(client_id, 0);
@@ -532,7 +534,7 @@ mod tests {
         }
 
         for &client_message in &client_messages {
-            let client_recv_event = client_event.next().await.unwrap();
+            let client_recv_event = client_events.next().await.unwrap();
             match client_recv_event {
                 ClientEvent::Receive { data } => {
                     assert_eq!(data, client_message);
@@ -542,11 +544,11 @@ mod tests {
         }
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -554,19 +556,19 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test sending custom types
     #[tokio::test]
     async fn test_sending_custom_types() {
-        let (mut server, mut server_event) =
+        let (mut server, mut server_events) =
             Server::<Custom, Custom>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
@@ -574,7 +576,7 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<Custom, Custom>::connect(server_addr)
+        let (mut client, mut client_events) = Client::<Custom, Custom>::connect(server_addr)
             .await
             .unwrap();
         sleep!();
@@ -583,7 +585,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -611,7 +613,7 @@ mod tests {
         server.send_all(client_message.clone()).await.unwrap();
         sleep!();
 
-        let client_recv_event_1 = client_event.next().await.unwrap();
+        let client_recv_event_1 = client_events.next().await.unwrap();
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, client_message);
@@ -623,7 +625,7 @@ mod tests {
         client.send(server_message.clone()).await.unwrap();
         sleep!();
 
-        let server_recv_event = server_event.next().await.unwrap();
+        let server_recv_event = server_events.next().await.unwrap();
         match server_recv_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -634,11 +636,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -646,19 +648,19 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test having multiple clients connected, and process events from them individually.
     #[tokio::test]
     async fn test_multiple_clients() {
-        let (mut server, mut server_event) =
+        let (mut server, mut server_events) =
             Server::<usize, String>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
@@ -674,7 +676,7 @@ mod tests {
         println!("Client 1 address: {}", client_addr_1);
         sleep!();
 
-        let client_connect_event_1 = server_event.next().await.unwrap();
+        let client_connect_event_1 = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event_1,
             ServerEvent::Connect { client_id: 0 }
@@ -699,7 +701,7 @@ mod tests {
         println!("Client 2 address: {}", client_addr_2);
         sleep!();
 
-        let client_connect_event_2 = server_event.next().await.unwrap();
+        let client_connect_event_2 = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event_2,
             ServerEvent::Connect { client_id: 1 }
@@ -720,7 +722,7 @@ mod tests {
         client_1.send(msg_from_client_1.clone()).await.unwrap();
         sleep!();
 
-        let server_msg_from_client_1 = server_event.next().await.unwrap();
+        let server_msg_from_client_1 = server_events.next().await.unwrap();
         match server_msg_from_client_1 {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -744,7 +746,7 @@ mod tests {
         client_2.send(msg_from_client_2.clone()).await.unwrap();
         sleep!();
 
-        let server_msg_from_client_2 = server_event.next().await.unwrap();
+        let server_msg_from_client_2 = server_events.next().await.unwrap();
         match server_msg_from_client_2 {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 1);
@@ -791,7 +793,7 @@ mod tests {
         assert!(matches!(disconnect_event_1, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event_1 = server_event.next().await.unwrap();
+        let client_disconnect_event_1 = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event_1,
             ServerEvent::Disconnect { client_id: 0 }
@@ -803,7 +805,7 @@ mod tests {
         assert!(matches!(disconnect_event_2, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event_2 = server_event.next().await.unwrap();
+        let client_disconnect_event_2 = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event_2,
             ServerEvent::Disconnect { client_id: 1 }
@@ -811,34 +813,34 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
         assert!(client_event_1.next().await.is_none());
         assert!(client_event_2.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test removing a client from the server.
     #[tokio::test]
     async fn test_remove_client() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -848,11 +850,11 @@ mod tests {
         server.remove_client(0).await.unwrap();
         sleep!();
 
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -860,33 +862,33 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
     /// Test stopping a server while a client is connected.
     #[tokio::test]
     async fn test_stop_server_while_client_connected() {
-        let (mut server, mut server_event) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<(), ()>::start(SERVER_ADDR).await.unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::<(), ()>::connect(server_addr).await.unwrap();
+        let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -894,16 +896,16 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 
@@ -1238,7 +1240,7 @@ mod tests {
     /// Test builder with channel configuration.
     #[tokio::test]
     async fn test_builder_with_channel_config() {
-        let (mut server, mut server_event) = Server::builder()
+        let (mut server, mut server_events) = Server::builder()
             .sending::<usize>()
             .receiving::<String>()
             .with_event_channel()
@@ -1251,7 +1253,7 @@ mod tests {
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_event) = Client::builder()
+        let (mut client, mut client_events) = Client::builder()
             .sending::<String>()
             .receiving::<usize>()
             .with_event_channel()
@@ -1264,7 +1266,7 @@ mod tests {
         println!("Client address: {}", client_addr);
         sleep!();
 
-        let client_connect_event = server_event.next().await.unwrap();
+        let client_connect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_connect_event,
             ServerEvent::Connect { client_id: 0 }
@@ -1275,7 +1277,7 @@ mod tests {
         server.send_all(msg_from_server).await.unwrap();
         sleep!();
 
-        let client_recv_event_1 = client_event.next().await.unwrap();
+        let client_recv_event_1 = client_events.next().await.unwrap();
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
@@ -1288,7 +1290,7 @@ mod tests {
         client.send(msg_from_client.clone()).await.unwrap();
         sleep!();
 
-        let server_recv_event = server_event.next().await.unwrap();
+        let server_recv_event = server_events.next().await.unwrap();
         match server_recv_event {
             ServerEvent::Receive { client_id, data } => {
                 assert_eq!(client_id, 0);
@@ -1299,7 +1301,7 @@ mod tests {
         }
         sleep!();
 
-        let client_recv_event_2 = client_event.next().await.unwrap();
+        let client_recv_event_2 = client_events.next().await.unwrap();
         match client_recv_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client.len());
@@ -1309,11 +1311,11 @@ mod tests {
         sleep!();
 
         client.disconnect().await.unwrap();
-        let disconnect_event = client_event.next().await.unwrap();
+        let disconnect_event = client_events.next().await.unwrap();
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        let client_disconnect_event = server_event.next().await.unwrap();
+        let client_disconnect_event = server_events.next().await.unwrap();
         assert!(matches!(
             client_disconnect_event,
             ServerEvent::Disconnect { client_id: 0 }
@@ -1321,12 +1323,12 @@ mod tests {
         sleep!();
 
         server.stop().await.unwrap();
-        let stop_event = server_event.next().await.unwrap();
+        let stop_event = server_events.next().await.unwrap();
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event.next().await.is_none());
-        assert!(server_event.next().await.is_none());
+        assert!(client_events.next().await.is_none());
+        assert!(server_events.next().await.is_none());
         sleep!();
     }
 }

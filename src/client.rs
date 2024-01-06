@@ -366,7 +366,13 @@ where
     S: Serialize + Send + 'static,
     R: DeserializeOwned + Send + 'static,
 {
-    /// Sets the configuration of callbacks that will handle client events.
+    /// Configures the client to receive events via callbacks.
+    ///
+    /// Using callbacks is typically considered an anti-pattern in Rust, so
+    /// this should only be used if it makes sense in the context of the
+    /// design of the code utilizing this API.
+    ///
+    /// See [`ClientEventCallbacks`] for more information and examples.
     pub fn with_event_callbacks(
         self,
         callbacks: ClientEventCallbacks<R>,
@@ -382,7 +388,12 @@ where
         }
     }
 
-    /// Sets the instance that will handle client events.
+    /// Configures the client to receive events via a trait implementation.
+    ///
+    /// This provides an approach to event handling that closely aligns with
+    /// object-oriented practices.
+    ///
+    /// See [`ClientEventHandler`] for more information and examples.
     pub fn with_event_handler<H>(
         self,
         handler: H,
@@ -404,7 +415,12 @@ where
         }
     }
 
-    /// Configures receiving client events through a channel.
+    /// Configures the client to receive events via a channel.
+    ///
+    /// This is the most versatile event handling strategy. In fact, all other
+    /// event handling options use this implementation under the hood.
+    /// Because of its flexibility, this will typically be the desired
+    /// approach.
     pub fn with_event_channel(
         self,
     ) -> ClientBuilder<
@@ -564,10 +580,16 @@ pub enum ClientCommandReturn {
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create the client
-///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+///     let (mut client, mut client_events) = Client::builder()
+///         .sending::<()>()
+///         .receiving::<String>()
+///         .with_event_channel()
+///         .connect(("127.0.0.1", 29275))
+///         .await
+///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = client_event.next().await {
+///     while let Some(event) = client_events.next().await {
 ///         match event {
 ///             ClientEvent::Receive { data } => {
 ///                 println!("Server sent: {}", data);
@@ -619,10 +641,16 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the client
-    ///     let (mut client, mut client_event) = Client::<(), String>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (mut client, mut client_events) = Client::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<String>()
+    ///         .with_event_channel()
+    ///         .connect(("127.0.0.1", 29275))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Wait for events until the server requests the client leave
-    ///     while let Some(event) = client_event.next().await {
+    ///     while let Some(event) = client_events.next().await {
     ///         match event {
     ///             ClientEvent::Receive { data } => {
     ///                 if data.as_str() == "Kindly leave" {
@@ -657,7 +685,13 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the client
-    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (mut client, mut client_events) = Client::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .connect(("127.0.0.1", 29275))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Send a greeting to the server upon connecting
     ///     client.send("Hello, server!".to_owned()).await.unwrap();
@@ -681,7 +715,13 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the client
-    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (mut client, mut client_events) = Client::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .connect(("127.0.0.1", 29275))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Get the client address
     ///     let addr = client.get_addr().await.unwrap();
@@ -706,7 +746,13 @@ where
     /// #[tokio::main]
     /// async fn main() {
     ///     // Create the client
-    ///     let (mut client, mut client_event) = Client::<String, ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (mut client, mut client_events) = Client::builder()
+    ///         .sending::<String>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .connect(("127.0.0.1", 29275))
+    ///         .await
+    ///         .unwrap();
     ///
     ///     // Get the server address
     ///     let addr = client.get_server_addr().await.unwrap();
@@ -737,14 +783,20 @@ where
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create a client that sends a message to the server and receives the length of the message
-///     let (mut client, mut client_event) = Client::<String, usize>::connect(("127.0.0.1", 29275)).await.unwrap();
+///     let (mut client, mut client_events) = Client::builder()
+///         .sending::<String>()
+///         .receiving::<usize>()
+///         .with_event_channel()
+///         .connect(("127.0.0.1", 29275))
+///         .await
+///         .unwrap();
 ///
 ///     // Send a message to the server
 ///     let msg = "Hello, server!".to_owned();
 ///     client.send(msg.clone()).await.unwrap();
 ///
 ///     // Receive the response
-///     match client_event.next().await.unwrap() {
+///     match client_events.next().await.unwrap() {
 ///         ClientEvent::Receive { data } => {
 ///             // Validate the response
 ///             println!("Received response from server: {}", data);
@@ -795,7 +847,13 @@ where
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let (mut client, mut client_event) = Client::<(), ()>::connect(("127.0.0.1", 29275)).await.unwrap();
+    ///     let (mut client, mut client_events) = Client::builder()
+    ///         .sending::<()>()
+    ///         .receiving::<()>()
+    ///         .with_event_channel()
+    ///         .connect(("127.0.0.1", 29275))
+    ///         .await
+    ///         .unwrap();
     /// }
     /// ```
     ///
