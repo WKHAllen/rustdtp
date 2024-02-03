@@ -31,8 +31,8 @@ use tokio::task::JoinHandle;
 ///
 /// Both callbacks are optional, and can be registered for any combination of
 /// these events. Note that each callback must be provided as a function or
-/// closure returning a heap-allocated, thread-safe future. The future will be
-/// awaited by the runtime.
+/// closure returning a thread-safe future. The future will be awaited by the
+/// runtime.
 ///
 /// # Example
 ///
@@ -46,17 +46,13 @@ use tokio::task::JoinHandle;
 ///     .receiving::<usize>()
 ///     .with_event_callbacks(
 ///         ClientEventCallbacks::new()
-///             .on_receive(move |data| {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Received data from server: {}", data);
-///                 })
+///             .on_receive(move |data| async move {
+///                 // some async operation...
+///                 println!("Received data from server: {}", data);
 ///             })
-///             .on_disconnect(move || {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Disconnected from server");
-///                 })
+///             .on_disconnect(move || async move {
+///                 // some async operation...
+///                 println!("Disconnected from server");
 ///             })
 ///     )
 ///     .connect(("127.0.0.1", 29275))
@@ -86,20 +82,22 @@ where
     }
 
     /// Registers a callback on the `receive` event.
-    pub fn on_receive<F>(mut self, callback: F) -> Self
+    pub fn on_receive<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn(R) -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.receive = Some(Box::new(callback));
+        self.receive = Some(Box::new(move |data| Box::pin((callback)(data))));
         self
     }
 
     /// Registers a callback on the `disconnect` event.
-    pub fn on_disconnect<F>(mut self, callback: F) -> Self
+    pub fn on_disconnect<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn() -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.disconnect = Some(Box::new(callback));
+        self.disconnect = Some(Box::new(move || Box::pin((callback)())));
         self
     }
 }

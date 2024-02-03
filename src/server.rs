@@ -33,8 +33,8 @@ use tokio::task::JoinHandle;
 ///
 /// All callbacks are optional, and can be registered for any combination of
 /// these events. Note that each callback must be provided as a function or
-/// closure returning a heap-allocated, thread-safe future. The future will be
-/// awaited by the runtime.
+/// closure returning a thread-safe future. The future will be awaited by the
+/// runtime.
 ///
 /// # Example
 ///
@@ -48,29 +48,21 @@ use tokio::task::JoinHandle;
 ///     .receiving::<String>()
 ///     .with_event_callbacks(
 ///         ServerEventCallbacks::new()
-///             .on_connect(move |client_id| {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Client with ID {} connected", client_id);
-///                 })
+///             .on_connect(move |client_id| async move {
+///                 // some async operation...
+///                 println!("Client with ID {} connected", client_id);
 ///             })
-///             .on_disconnect(move |client_id| {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Client with ID {} disconnected", client_id);
-///                 })
+///             .on_disconnect(move |client_id| async move {
+///                 // some async operation...
+///                 println!("Client with ID {} disconnected", client_id);
 ///             })
-///             .on_receive(move |client_id, data| {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Received data from client with ID {}: {}", client_id, data);
-///                 })
+///             .on_receive(move |client_id, data| async move {
+///                 // some async operation...
+///                 println!("Received data from client with ID {}: {}", client_id, data);
 ///             })
-///             .on_stop(move || {
-///                 Box::pin(async move {
-///                     // some async operation...
-///                     println!("Server closed");
-///                 })
+///             .on_stop(move || async move {
+///                 // some async operation...
+///                 println!("Server closed");
 ///             })
 ///     )
 ///     .start(("0.0.0.0", 0))
@@ -104,38 +96,44 @@ where
     }
 
     /// Registers a callback on the `connect` event.
-    pub fn on_connect<F>(mut self, callback: F) -> Self
+    pub fn on_connect<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn(usize) -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.connect = Some(Box::new(callback));
+        self.connect = Some(Box::new(move |client_id| Box::pin((callback)(client_id))));
         self
     }
 
     /// Registers a callback on the `disconnect` event.
-    pub fn on_disconnect<F>(mut self, callback: F) -> Self
+    pub fn on_disconnect<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn(usize) -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.disconnect = Some(Box::new(callback));
+        self.disconnect = Some(Box::new(move |client_id| Box::pin((callback)(client_id))));
         self
     }
 
     /// Registers a callback on the `receive` event.
-    pub fn on_receive<F>(mut self, callback: F) -> Self
+    pub fn on_receive<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn(usize, R) -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.receive = Some(Box::new(callback));
+        self.receive = Some(Box::new(move |client_id, data| {
+            Box::pin((callback)(client_id, data))
+        }));
         self
     }
 
     /// Registers a callback on the `stop` event.
-    pub fn on_stop<F>(mut self, callback: F) -> Self
+    pub fn on_stop<C, F>(mut self, callback: C) -> Self
     where
-        F: Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + 'static,
+        C: Fn() -> F + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
-        self.stop = Some(Box::new(callback));
+        self.stop = Some(Box::new(move || Box::pin((callback)())));
         self
     }
 }

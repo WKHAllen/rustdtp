@@ -949,27 +949,27 @@ mod tests {
                 ServerEventCallbacks::new()
                     .on_connect(move |client_id| {
                         let server_connect_sender = server_connect_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             server_connect_sender.send(client_id).await.unwrap();
-                        })
+                        }
                     })
                     .on_disconnect(move |client_id| {
                         let server_disconnect_sender = server_disconnect_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             server_disconnect_sender.send(client_id).await.unwrap();
-                        })
+                        }
                     })
                     .on_receive(move |client_id, data| {
                         let server_receive_sender = server_receive_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             server_receive_sender.send((client_id, data)).await.unwrap();
-                        })
+                        }
                     })
                     .on_stop(move || {
                         let server_stop_sender = server_stop_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             server_stop_sender.send(()).await.unwrap();
-                        })
+                        }
                     }),
             )
             .start(SERVER_ADDR)
@@ -988,15 +988,15 @@ mod tests {
                 ClientEventCallbacks::new()
                     .on_receive(move |data| {
                         let client_receive_sender = client_receive_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             client_receive_sender.send(data).await.unwrap();
-                        })
+                        }
                     })
                     .on_disconnect(move || {
                         let client_disconnect_sender = client_disconnect_sender.clone();
-                        Box::pin(async move {
+                        async move {
                             client_disconnect_sender.send(()).await.unwrap();
-                        })
+                        }
                     }),
             )
             .connect(server_addr)
