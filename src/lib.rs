@@ -108,7 +108,6 @@ mod timeout;
 mod util;
 
 // Types re-exported from the crate.
-pub use async_trait::async_trait;
 pub use tokio_stream::StreamExt as EventStreamExt;
 
 // Types exported from the crate.
@@ -126,7 +125,6 @@ mod tests {
     use super::*;
     use crate::crypto;
     use crate::util::*;
-    use async_trait::async_trait;
     use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
@@ -1089,7 +1087,6 @@ mod tests {
             }
         }
 
-        #[async_trait]
         impl<R> ServerEventHandler<R> for ServerHandler<R>
         where
             R: DeserializeOwned + Send + 'static,
@@ -1131,7 +1128,6 @@ mod tests {
             }
         }
 
-        #[async_trait]
         impl<R> ClientEventHandler<R> for ClientHandler<R>
         where
             R: DeserializeOwned + Send + 'static,

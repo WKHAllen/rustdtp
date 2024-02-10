@@ -1,6 +1,6 @@
 [package]
 name = "rustdtp"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["WKHAllen <wkhallen@gmail.com>"]
 license = "MIT"
 description = "Cross-platform networking interfaces for Rust."
@@ -9,10 +9,10 @@ homepage = "https://wkhallen.com/dtp/"
 keywords = ["socket", "networking", "io", "async"]
 include = ["src/**/*", "LICENSE", "README.md"]
 edition = "2021"
+rust-version = "1.75"
 
 [dependencies]
 aes-gcm = "0.10.3"
-async-trait = "0.1.76"
 futures = "0.3"
 rand = "0.8.5"
 rsa = { version = "0.9.6", features = ["sha2"] }

@@ -5,7 +5,6 @@ use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
-use async_trait::async_trait;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
@@ -125,8 +124,7 @@ where
 ///
 /// Both method implementations are optional, and can be registered for any
 /// combination of these events. Note that the type that implements the trait
-/// must be `Send + Sync`, and that the trait implementation must apply the
-/// `async_trait` macro.
+/// must be `Send + Sync`, and that all event method futures must be `Send`.
 ///
 /// # Example
 ///
@@ -137,7 +135,6 @@ where
 /// # async fn main() {
 /// struct MyClientHandler;
 ///
-/// #[async_trait]
 /// impl ClientEventHandler<usize> for MyClientHandler {
 ///     async fn on_receive(&self, data: usize) {
 ///         // some async operation...
@@ -151,7 +148,6 @@ where
 /// }
 /// # }
 /// ```
-#[async_trait]
 pub trait ClientEventHandler<R>
 where
     Self: Send + Sync,
@@ -159,10 +155,14 @@ where
 {
     /// Handles the `receive` event.
     #[allow(unused_variables)]
-    async fn on_receive(&self, data: R) {}
+    fn on_receive(&self, data: R) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Handles the `disconnect` event.
-    async fn on_disconnect(&self) {}
+    fn on_disconnect(&self) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 }
 
 /// Unknown client sending type.

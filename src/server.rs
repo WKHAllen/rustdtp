@@ -5,7 +5,6 @@ use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
-use async_trait::async_trait;
 use rsa::pkcs8::EncodePublicKey;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use std::collections::HashMap;
@@ -165,8 +164,7 @@ where
 ///
 /// All method implementations are optional, and can be registered for any
 /// combination of these events. Note that the type that implements the trait
-/// must be `Send + Sync`, and that the trait implementation must apply the
-/// `async_trait` macro.
+/// must be `Send + Sync`, and that all event method futures must be `Send`.
 ///
 /// # Example
 ///
@@ -177,7 +175,6 @@ where
 /// # async fn main() {
 /// struct MyServerHandler;
 ///
-/// #[async_trait]
 /// impl ServerEventHandler<String> for MyServerHandler {
 ///     async fn on_connect(&self, client_id: usize) {
 ///         // some async operation...
@@ -209,7 +206,6 @@ where
 ///     .unwrap();
 /// # }
 /// ```
-#[async_trait]
 pub trait ServerEventHandler<R>
 where
     Self: Send + Sync,
@@ -217,18 +213,26 @@ where
 {
     /// Handles the `connect` event.
     #[allow(unused_variables)]
-    async fn on_connect(&self, client_id: usize) {}
+    fn on_connect(&self, client_id: usize) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Handles the `disconnect` event.
     #[allow(unused_variables)]
-    async fn on_disconnect(&self, client_id: usize) {}
+    fn on_disconnect(&self, client_id: usize) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Handles the `receive` event.
     #[allow(unused_variables)]
-    async fn on_receive(&self, client_id: usize, data: R) {}
+    fn on_receive(&self, client_id: usize, data: R) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Handles the `stop` event.
-    async fn on_stop(&self) {}
+    fn on_stop(&self) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 }
 
 /// Unknown server sending type.
