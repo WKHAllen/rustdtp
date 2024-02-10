@@ -1,6 +1,6 @@
 [package]
 name = "rustdtp"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["WKHAllen <wkhallen@gmail.com>"]
 license = "MIT"
 description = "Cross-platform networking interfaces for Rust."

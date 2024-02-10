@@ -11,7 +11,7 @@
 //! Add the package in `Cargo.toml`:
 //!
 //! ```toml
-//! rustdtp = "0.5"
+//! rustdtp = "0.6"
 //! ```
 //!
 //! ## Creating a server
