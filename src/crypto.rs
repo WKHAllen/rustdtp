@@ -1,7 +1,7 @@
 //! Crypto utilities.
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{Aes256Gcm, Nonce};
+use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use rsa::sha2::Sha256;
 use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
 use std::sync::Arc;
@@ -139,11 +139,10 @@ pub async fn aes_key() -> [u8; AES_KEY_SIZE] {
 pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
-        let nonce_slice: [u8; AES_NONCE_SIZE] = rand::random();
-        let nonce = Nonce::from(nonce_slice);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref())?;
 
-        let mut ciphertext_with_nonce = nonce_slice.to_vec();
+        let mut ciphertext_with_nonce = nonce.to_vec();
         ciphertext_with_nonce.extend(ciphertext);
 
         Ok(ciphertext_with_nonce)
