@@ -11,7 +11,7 @@
 //! Add the package in `Cargo.toml`:
 //!
 //! ```toml
-//! rustdtp = "0.6"
+//! rustdtp = "0.7"
 //! ```
 //!
 //! ## Creating a server
@@ -33,7 +33,7 @@
 //!         .unwrap();
 //!
 //!     // Iterate over events
-//!     while let Some(event) = server_events.next().await {
+//!     while let Ok(event) = server_events.next().await {
 //!         match event {
 //!             ServerEvent::Connect { client_id } => {
 //!                 println!("Client with ID {} connected", client_id);
@@ -102,22 +102,13 @@
 mod client;
 mod command_channel;
 mod crypto;
-mod event_stream;
 mod server;
 mod timeout;
 mod util;
 
-// Types re-exported from the crate.
-pub use tokio_stream::StreamExt as EventStreamExt;
-
 // Types exported from the crate.
-pub use client::{
-    Client, ClientBuilder, ClientEvent, ClientEventCallbacks, ClientEventHandler, ClientHandle,
-};
-pub use event_stream::EventStream;
-pub use server::{
-    Server, ServerBuilder, ServerEvent, ServerEventCallbacks, ServerEventHandler, ServerHandle,
-};
+pub use client::*;
+pub use server::*;
 
 /// Root-level tests.
 #[cfg(test)]
@@ -125,7 +116,6 @@ mod tests {
     use super::*;
     use crate::crypto;
     use crate::util::*;
-    use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::mpsc::{channel, Sender};
@@ -257,7 +247,7 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(server_events.next().await.is_none());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -312,8 +302,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -397,8 +387,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -475,8 +465,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -558,8 +548,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -650,8 +640,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -815,9 +805,9 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_event_1.next().await.is_none());
-        assert!(client_event_2.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_event_1.next().await.is_err());
+        assert!(client_event_2.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -864,8 +854,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -902,8 +892,8 @@ mod tests {
         assert!(matches!(disconnect_event, ClientEvent::Disconnect));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 
@@ -1058,24 +1048,18 @@ mod tests {
     /// Test builder with handler configuration.
     #[tokio::test]
     async fn test_builder_with_handler_config() {
-        struct ServerHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
+        struct ServerHandler {
             connect_sender: Sender<usize>,
             disconnect_sender: Sender<usize>,
-            receive_sender: Sender<(usize, R)>,
+            receive_sender: Sender<(usize, String)>,
             stop_sender: Sender<()>,
         }
 
-        impl<R> ServerHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
+        impl ServerHandler {
             pub fn new(
                 connect_sender: Sender<usize>,
                 disconnect_sender: Sender<usize>,
-                receive_sender: Sender<(usize, R)>,
+                receive_sender: Sender<(usize, String)>,
                 stop_sender: Sender<()>,
             ) -> Self {
                 Self {
@@ -1087,10 +1071,7 @@ mod tests {
             }
         }
 
-        impl<R> ServerEventHandler<R> for ServerHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
+        impl ServerEventHandler<String> for ServerHandler {
             async fn on_connect(&self, client_id: usize) {
                 self.connect_sender.send(client_id).await.unwrap();
             }
@@ -1099,7 +1080,7 @@ mod tests {
                 self.disconnect_sender.send(client_id).await.unwrap();
             }
 
-            async fn on_receive(&self, client_id: usize, data: R) {
+            async fn on_receive(&self, client_id: usize, data: String) {
                 self.receive_sender.send((client_id, data)).await.unwrap();
             }
 
@@ -1108,19 +1089,13 @@ mod tests {
             }
         }
 
-        struct ClientHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
-            receive_sender: Sender<R>,
+        struct ClientHandler {
+            receive_sender: Sender<usize>,
             disconnect_sender: Sender<()>,
         }
 
-        impl<R> ClientHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
-            pub fn new(receive_sender: Sender<R>, disconnect_sender: Sender<()>) -> Self {
+        impl ClientHandler {
+            pub fn new(receive_sender: Sender<usize>, disconnect_sender: Sender<()>) -> Self {
                 Self {
                     receive_sender,
                     disconnect_sender,
@@ -1128,11 +1103,8 @@ mod tests {
             }
         }
 
-        impl<R> ClientEventHandler<R> for ClientHandler<R>
-        where
-            R: DeserializeOwned + Send + 'static,
-        {
-            async fn on_receive(&self, data: R) {
+        impl ClientEventHandler<usize> for ClientHandler {
+            async fn on_receive(&self, data: usize) {
                 self.receive_sender.send(data).await.unwrap();
             }
 
@@ -1323,8 +1295,8 @@ mod tests {
         assert!(matches!(stop_event, ServerEvent::Stop));
         sleep!();
 
-        assert!(client_events.next().await.is_none());
-        assert!(server_events.next().await.is_none());
+        assert!(client_events.next().await.is_err());
+        assert!(server_events.next().await.is_err());
         sleep!();
     }
 }

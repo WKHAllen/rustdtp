@@ -1,7 +1,6 @@
 //! Protocol client implementation.
 
 use super::command_channel::*;
-use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
@@ -16,7 +15,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
 /// Configuration for a client's event callbacks.
@@ -62,17 +61,17 @@ use tokio::task::JoinHandle;
 #[allow(clippy::type_complexity)]
 pub struct ClientEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// The `receive` event callback.
-    receive: Option<Box<dyn Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    receive: Option<Arc<dyn Fn(R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
     /// The `disconnect` event callback.
-    disconnect: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    disconnect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
 }
 
 impl<R> ClientEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Creates a new client event callbacks configuration with all callbacks
     /// empty.
@@ -83,27 +82,27 @@ where
     /// Registers a callback on the `receive` event.
     pub fn on_receive<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn(R) -> F + Send + 'static,
+        C: Fn(R) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.receive = Some(Box::new(move |data| Box::pin((callback)(data))));
+        self.receive = Some(Arc::new(move |data| Box::pin((callback)(data))));
         self
     }
 
     /// Registers a callback on the `disconnect` event.
     pub fn on_disconnect<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn() -> F + Send + 'static,
+        C: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.disconnect = Some(Box::new(move || Box::pin((callback)())));
+        self.disconnect = Some(Arc::new(move || Box::pin((callback)())));
         self
     }
 }
 
 impl<R> Default for ClientEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     fn default() -> Self {
         Self {
@@ -151,7 +150,7 @@ where
 pub trait ClientEventHandler<R>
 where
     Self: Send + Sync,
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Handles the `receive` event.
     #[allow(unused_variables)]
@@ -171,14 +170,14 @@ pub struct ClientSendingUnknown;
 /// Known client sending type, stored as the type parameter `S`.
 pub struct ClientSending<S>(PhantomData<S>)
 where
-    S: Serialize + Send + 'static;
+    S: Serialize + 'static;
 
 /// A client sending marker trait.
 pub(crate) trait ClientSendingConfig {}
 
 impl ClientSendingConfig for ClientSendingUnknown {}
 
-impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + Send + 'static {}
+impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + 'static {}
 
 /// Unknown client receiving type.
 pub struct ClientReceivingUnknown;
@@ -186,14 +185,14 @@ pub struct ClientReceivingUnknown;
 /// Known client receiving type, stored as the type parameter `R`.
 pub struct ClientReceiving<R>(PhantomData<R>)
 where
-    R: DeserializeOwned + Send + 'static;
+    R: DeserializeOwned + 'static;
 
 /// A client receiving marker trait.
 pub(crate) trait ClientReceivingConfig {}
 
 impl ClientReceivingConfig for ClientReceivingUnknown {}
 
-impl<R> ClientReceivingConfig for ClientReceiving<R> where R: DeserializeOwned + Send + 'static {}
+impl<R> ClientReceivingConfig for ClientReceiving<R> where R: DeserializeOwned + 'static {}
 
 /// Unknown client event reporting type.
 pub struct ClientEventReportingUnknown;
@@ -204,12 +203,12 @@ pub struct ClientEventReporting<E>(E);
 /// Client event reporting via callbacks.
 pub struct ClientEventReportingCallbacks<R>(ClientEventCallbacks<R>)
 where
-    R: DeserializeOwned + Send + 'static;
+    R: DeserializeOwned + 'static;
 
 /// Client event reporting via an event handler.
 pub struct ClientEventReportingHandler<R, H>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
     H: ClientEventHandler<R>,
 {
     /// The event handler instance.
@@ -227,13 +226,13 @@ pub(crate) trait ClientEventReportingConfig {}
 impl ClientEventReportingConfig for ClientEventReportingUnknown {}
 
 impl<R> ClientEventReportingConfig for ClientEventReporting<ClientEventReportingCallbacks<R>> where
-    R: DeserializeOwned + Send + 'static
+    R: DeserializeOwned + 'static
 {
 }
 
 impl<R, H> ClientEventReportingConfig for ClientEventReporting<ClientEventReportingHandler<R, H>>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
     H: ClientEventHandler<R>,
 {
 }
@@ -292,10 +291,8 @@ where
     RC: ClientReceivingConfig,
     EC: ClientEventReportingConfig,
 {
-    /// Phantom `SC` owner.
-    phantom_send: PhantomData<SC>,
-    /// Phantom `RC` owner.
-    phantom_receive: PhantomData<RC>,
+    /// Phantom marker for `SC` and `RC`.
+    marker: PhantomData<(SC, RC)>,
     /// The event reporting configuration.
     event_reporting: EC,
 }
@@ -312,8 +309,7 @@ impl Default
 {
     fn default() -> Self {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ClientEventReportingUnknown,
         }
     }
@@ -328,11 +324,10 @@ where
     /// Configures the type of data the client intends to send to the server.
     pub fn sending<S>(self) -> ClientBuilder<ClientSending<S>, RC, EC>
     where
-        S: Serialize + Send + 'static,
+        S: Serialize + 'static,
     {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: self.event_reporting,
         }
     }
@@ -348,21 +343,19 @@ where
     /// server.
     pub fn receiving<R>(self) -> ClientBuilder<SC, ClientReceiving<R>, EC>
     where
-        R: DeserializeOwned + Send + 'static,
+        R: DeserializeOwned + 'static,
     {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: self.event_reporting,
         }
     }
 }
 
-#[allow(private_bounds)]
 impl<S, R> ClientBuilder<ClientSending<S>, ClientReceiving<R>, ClientEventReportingUnknown>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Configures the client to receive events via callbacks.
     ///
@@ -380,8 +373,7 @@ where
         ClientEventReporting<ClientEventReportingCallbacks<R>>,
     > {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ClientEventReporting(ClientEventReportingCallbacks(callbacks)),
         }
     }
@@ -404,8 +396,7 @@ where
         H: ClientEventHandler<R>,
     {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ClientEventReporting(ClientEventReportingHandler {
                 handler,
                 phantom_receive: PhantomData,
@@ -427,8 +418,7 @@ where
         ClientEventReporting<ClientEventReportingChannel>,
     > {
         ClientBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ClientEventReporting(ClientEventReportingChannel),
         }
     }
@@ -441,8 +431,8 @@ impl<S, R>
         ClientEventReporting<ClientEventReportingCallbacks<R>>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Connects to a server. This is effectively identical to
     /// `Client::connect(...)`.
@@ -454,16 +444,23 @@ where
         let callbacks = self.event_reporting.0 .0;
 
         tokio::spawn(async move {
-            while let Some(event) = client_events.next().await {
+            while let Ok(event) = client_events.next_raw().await {
                 match event {
-                    ClientEvent::Receive { data } => {
+                    ClientEventRaw::Receive { data } => {
                         if let Some(ref receive) = callbacks.receive {
-                            tokio::spawn((*receive)(data));
+                            let receive = Arc::clone(receive);
+                            tokio::spawn(async move {
+                                let data = serde_json::from_slice(&data).unwrap();
+                                (*receive)(data).await;
+                            });
                         }
                     }
-                    ClientEvent::Disconnect => {
+                    ClientEventRaw::Disconnect => {
                         if let Some(ref disconnect) = callbacks.disconnect {
-                            tokio::spawn((*disconnect)());
+                            let disconnect = Arc::clone(disconnect);
+                            tokio::spawn(async move {
+                                (*disconnect)().await;
+                            });
                         }
                     }
                 }
@@ -481,8 +478,8 @@ impl<S, R, H>
         ClientEventReporting<ClientEventReportingHandler<R, H>>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
     H: ClientEventHandler<R> + 'static,
 {
     /// Connects to a server. This is effectively identical to
@@ -495,15 +492,16 @@ where
         let handler = Arc::new(self.event_reporting.0.handler);
 
         tokio::spawn(async move {
-            while let Some(event) = client_events.next().await {
+            while let Ok(event) = client_events.next_raw().await {
                 match event {
-                    ClientEvent::Receive { data } => {
+                    ClientEventRaw::Receive { data } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
+                            let data = serde_json::from_slice(&data).unwrap();
                             handler.on_receive(data).await;
                         });
                     }
-                    ClientEvent::Disconnect => {
+                    ClientEventRaw::Disconnect => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_disconnect().await;
@@ -524,15 +522,12 @@ impl<S, R>
         ClientEventReporting<ClientEventReportingChannel>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Connects to a server. This is effectively identical to
     /// `Client::connect(...)`.
-    pub async fn connect<A>(
-        self,
-        addr: A,
-    ) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
+    pub async fn connect<A>(self, addr: A) -> io::Result<(ClientHandle<S>, ClientEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -541,16 +536,13 @@ where
 }
 
 /// A command sent from the client handle to the background client task.
-pub enum ClientCommand<S>
-where
-    S: Serialize + Send + 'static,
-{
+pub enum ClientCommand {
     /// Disconnect from the server.
     Disconnect,
     /// Send data to the server.
     Send {
         /// The data to send.
-        data: S,
+        data: Vec<u8>,
     },
     /// Get the local client address.
     GetAddr,
@@ -587,7 +579,7 @@ pub enum ClientCommandReturn {
 ///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = client_events.next().await {
+///     while let Ok(event) = client_events.next().await {
 ///         match event {
 ///             ClientEvent::Receive { data } => {
 ///                 println!("Server sent: {}", data);
@@ -603,7 +595,7 @@ pub enum ClientCommandReturn {
 #[derive(Debug, Clone)]
 pub enum ClientEvent<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Data received from the server.
     Receive {
@@ -614,20 +606,86 @@ where
     Disconnect,
 }
 
+/// Identical to `ClientEvent`, but with the received data in serialized form.
+enum ClientEventRaw {
+    /// Data received from the server.
+    Receive {
+        /// The data itself.
+        data: Vec<u8>,
+    },
+    /// Disconnected from the server.
+    Disconnect,
+}
+
+impl ClientEventRaw {
+    /// Deserializes this instance into a `ClientEvent`.
+    fn deserialize<R>(&self) -> io::Result<ClientEvent<R>>
+    where
+        R: DeserializeOwned + 'static,
+    {
+        match self {
+            Self::Receive { data } => match serde_json::from_slice(data) {
+                Ok(data) => Ok(ClientEvent::Receive { data }),
+                Err(err) => generic_io_error(err),
+            },
+            Self::Disconnect => Ok(ClientEvent::Disconnect),
+        }
+    }
+}
+
+/// An asynchronous stream of client events.
+pub struct ClientEventStream<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// The event receiver channel.
+    event_receiver: Receiver<ClientEventRaw>,
+    /// Phantom marker for `R`.
+    marker: PhantomData<fn() -> R>,
+}
+
+impl<R> ClientEventStream<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// Consumes and returns the next value in the stream. This will return an
+    /// error if the stream is closed, or if there was an error while
+    /// deserializing data received.
+    pub async fn next(&mut self) -> io::Result<ClientEvent<R>> {
+        match self.event_receiver.recv().await {
+            Some(serialized_event) => serialized_event.deserialize(),
+            None => generic_io_error("event stream is closed"),
+        }
+    }
+
+    /// Identical to `next`, but doesn't deserialize the event.
+    async fn next_raw(&mut self) -> io::Result<ClientEventRaw> {
+        match self.event_receiver.recv().await {
+            Some(serialized_event) => {
+                serialized_event.deserialize::<R>()?;
+                Ok(serialized_event)
+            }
+            None => generic_io_error("event stream is closed"),
+        }
+    }
+}
+
 /// A handle to the client.
 pub struct ClientHandle<S>
 where
-    S: Serialize + Send + 'static,
+    S: Serialize + 'static,
 {
     /// The channel through which commands can be sent to the background task.
-    client_command_sender: CommandChannelSender<ClientCommand<S>, ClientCommandReturn>,
+    client_command_sender: CommandChannelSender<ClientCommand, ClientCommandReturn>,
     /// The handle to the background task.
     client_task_handle: JoinHandle<io::Result<()>>,
+    /// Phantom marker for `S`.
+    marker: PhantomData<S>,
 }
 
 impl<S> ClientHandle<S>
 where
-    S: Serialize + Send + 'static,
+    S: Serialize + 'static,
 {
     /// Disconnect from the server.
     ///
@@ -648,7 +706,7 @@ where
     ///         .unwrap();
     ///
     ///     // Wait for events until the server requests the client leave
-    ///     while let Some(event) = client_events.next().await {
+    ///     while let Ok(event) = client_events.next().await {
     ///         match event {
     ///             ClientEvent::Receive { data } => {
     ///                 if data.as_str() == "Kindly leave" {
@@ -696,9 +754,12 @@ where
     /// }
     /// ```
     pub async fn send(&mut self, data: S) -> io::Result<()> {
+        let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
             .client_command_sender
-            .send_command(ClientCommand::Send { data })
+            .send_command(ClientCommand::Send {
+                data: data_serialized,
+            })
             .await?;
         unwrap_enum!(value, ClientCommandReturn::Send)
     }
@@ -809,13 +870,11 @@ where
 /// ```
 pub struct Client<S, R>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
-    /// Phantom value for `S`.
-    phantom_send: PhantomData<S>,
-    /// Phantom value for `R`.
-    phantom_receive: PhantomData<R>,
+    /// Phantom marker for `S` and `R`.
+    marker: PhantomData<(S, R)>,
 }
 
 impl Client<(), ()> {
@@ -831,8 +890,8 @@ impl Client<(), ()> {
 
 impl<S, R> Client<S, R>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Connect to a socket server.
     ///
@@ -856,7 +915,7 @@ where
     /// ```
     ///
     /// Neither the client handle nor the event receiver should be dropped until the client has disconnected. Prematurely dropping either one can cause unintended behavior.
-    pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, EventStream<ClientEvent<R>>)>
+    pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, ClientEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -938,26 +997,26 @@ where
         let client_handle = ClientHandle {
             client_command_sender,
             client_task_handle,
+            marker: PhantomData,
         };
 
         // Create an event stream for the client
-        let client_event_stream = EventStream::new(client_event_receiver);
+        let client_event_stream = ClientEventStream {
+            event_receiver: client_event_receiver,
+            marker: PhantomData,
+        };
 
         Ok((client_handle, client_event_stream))
     }
 }
 
 /// The client loop. Handles received data and commands.
-async fn client_loop<S, R>(
+async fn client_loop(
     mut stream: TcpStream,
     aes_key: [u8; AES_KEY_SIZE],
-    client_event_sender: Sender<ClientEvent<R>>,
-    mut client_command_receiver: CommandChannelReceiver<ClientCommand<S>, ClientCommandReturn>,
-) -> io::Result<()>
-where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
-{
+    client_event_sender: Sender<ClientEventRaw>,
+    mut client_command_receiver: CommandChannelReceiver<ClientCommand, ClientCommandReturn>,
+) -> io::Result<()> {
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
 
@@ -997,22 +1056,15 @@ where
                 }
 
                 // Decrypt the data
-                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
+                let data_serialized = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
                     Ok(val) => Ok(val),
                     Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
                 }?;
 
-                // Deserialize the message data
-                if let Ok(data) = serde_json::from_slice(&data_buffer) {
-                    // Send an event to note that a piece of data has been received from
-                    // the server
-                    if let Err(_e) = client_event_sender.send(ClientEvent::Receive { data }).await {
-                        // Sending failed, disconnect
-                        stream.shutdown().await?;
-                        break;
-                    }
-                } else {
-                    // Deserialization failed, disconnect
+                // Send an event to note that a piece of data has been received from
+                // the server
+                if let Err(_e) = client_event_sender.send(ClientEventRaw::Receive { data: data_serialized }).await {
+                    // Sending failed, disconnect
                     stream.shutdown().await?;
                     break;
                 }
@@ -1039,10 +1091,8 @@ where
                             },
                             ClientCommand::Send { data } => {
                                 let value = 'val: {
-                                    // Serialize the data
-                                    let data_buffer = break_on_err!(into_generic_io_result(serde_json::to_vec(&data)), 'val);
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data_buffer.into()).await), 'val);
+                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data.into()).await), 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -1118,7 +1168,7 @@ where
     }
 
     // Send a disconnect event, ignoring send errors
-    if let Err(_e) = client_event_sender.send(ClientEvent::Disconnect).await {}
+    if let Err(_e) = client_event_sender.send(ClientEventRaw::Disconnect).await {}
 
     Ok(())
 }

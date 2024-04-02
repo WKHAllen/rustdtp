@@ -11,7 +11,7 @@ The Data Transfer Protocol (DTP) is a larger project to make ergonomic network p
 Add the package in `Cargo.toml`:
 
 ```toml
-rustdtp = "0.6"
+rustdtp = "0.7"
 ```
 
 ## Creating a server
@@ -33,7 +33,7 @@ async fn main() {
         .unwrap();
 
     // Iterate over events
-    while let Some(event) = server_events.next().await {
+    while let Ok(event) = server_events.next().await {
         match event {
             ServerEvent::Connect { client_id } => {
                 println!("Client with ID {} connected", client_id);

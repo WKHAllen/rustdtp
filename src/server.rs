@@ -1,7 +1,6 @@
 //! Protocol server implementation.
 
 use super::command_channel::*;
-use super::event_stream::*;
 use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
@@ -16,7 +15,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
-use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
 /// Configuration for a server's event callbacks.
@@ -72,21 +71,23 @@ use tokio::task::JoinHandle;
 #[allow(clippy::type_complexity)]
 pub struct ServerEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// The `connect` event callback.
-    connect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    connect: Option<Arc<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
     /// The `disconnect` event callback.
-    disconnect: Option<Box<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    disconnect:
+        Option<Arc<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
     /// The `receive` event callback.
-    receive: Option<Box<dyn Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    receive:
+        Option<Arc<dyn Fn(usize, R) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
     /// The `stop` event callback.
-    stop: Option<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>>,
+    stop: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
 }
 
 impl<R> ServerEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Creates a new server event callbacks configuration with all callbacks
     /// empty.
@@ -97,30 +98,30 @@ where
     /// Registers a callback on the `connect` event.
     pub fn on_connect<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn(usize) -> F + Send + 'static,
+        C: Fn(usize) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.connect = Some(Box::new(move |client_id| Box::pin((callback)(client_id))));
+        self.connect = Some(Arc::new(move |client_id| Box::pin((callback)(client_id))));
         self
     }
 
     /// Registers a callback on the `disconnect` event.
     pub fn on_disconnect<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn(usize) -> F + Send + 'static,
+        C: Fn(usize) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.disconnect = Some(Box::new(move |client_id| Box::pin((callback)(client_id))));
+        self.disconnect = Some(Arc::new(move |client_id| Box::pin((callback)(client_id))));
         self
     }
 
     /// Registers a callback on the `receive` event.
     pub fn on_receive<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn(usize, R) -> F + Send + 'static,
+        C: Fn(usize, R) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.receive = Some(Box::new(move |client_id, data| {
+        self.receive = Some(Arc::new(move |client_id, data| {
             Box::pin((callback)(client_id, data))
         }));
         self
@@ -129,17 +130,17 @@ where
     /// Registers a callback on the `stop` event.
     pub fn on_stop<C, F>(mut self, callback: C) -> Self
     where
-        C: Fn() -> F + Send + 'static,
+        C: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.stop = Some(Box::new(move || Box::pin((callback)())));
+        self.stop = Some(Arc::new(move || Box::pin((callback)())));
         self
     }
 }
 
 impl<R> Default for ServerEventCallbacks<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     fn default() -> Self {
         Self {
@@ -209,7 +210,7 @@ where
 pub trait ServerEventHandler<R>
 where
     Self: Send + Sync,
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Handles the `connect` event.
     #[allow(unused_variables)]
@@ -241,14 +242,14 @@ pub struct ServerSendingUnknown;
 /// Known server sending type, stored as the type parameter `S`.
 pub struct ServerSending<S>(PhantomData<S>)
 where
-    S: Serialize + Send + 'static;
+    S: Serialize + 'static;
 
 /// A server sending marker trait.
 pub(crate) trait ServerSendingConfig {}
 
 impl ServerSendingConfig for ServerSendingUnknown {}
 
-impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + Send + 'static {}
+impl<S> ServerSendingConfig for ServerSending<S> where S: Serialize + 'static {}
 
 /// Unknown server receiving type.
 pub struct ServerReceivingUnknown;
@@ -256,14 +257,14 @@ pub struct ServerReceivingUnknown;
 /// Known server receiving type, stored as the type parameter `R`.
 pub struct ServerReceiving<R>(PhantomData<R>)
 where
-    R: DeserializeOwned + Send + 'static;
+    R: DeserializeOwned + 'static;
 
 /// A server receiving marker trait.
 pub(crate) trait ServerReceivingConfig {}
 
 impl ServerReceivingConfig for ServerReceivingUnknown {}
 
-impl<R> ServerReceivingConfig for ServerReceiving<R> where R: DeserializeOwned + Send + 'static {}
+impl<R> ServerReceivingConfig for ServerReceiving<R> where R: DeserializeOwned + 'static {}
 
 /// Unknown server event reporting type.
 pub struct ServerEventReportingUnknown;
@@ -274,12 +275,12 @@ pub struct ServerEventReporting<E>(E);
 /// Server event reporting via callbacks.
 pub struct ServerEventReportingCallbacks<R>(ServerEventCallbacks<R>)
 where
-    R: DeserializeOwned + Send + 'static;
+    R: DeserializeOwned + 'static;
 
 /// Server event reporting via an event handler.
 pub struct ServerEventReportingHandler<R, H>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
     H: ServerEventHandler<R>,
 {
     /// The event handler instance.
@@ -297,13 +298,13 @@ pub(crate) trait ServerEventReportingConfig {}
 impl ServerEventReportingConfig for ServerEventReportingUnknown {}
 
 impl<R> ServerEventReportingConfig for ServerEventReporting<ServerEventReportingCallbacks<R>> where
-    R: DeserializeOwned + Send + 'static
+    R: DeserializeOwned + 'static
 {
 }
 
 impl<R, H> ServerEventReportingConfig for ServerEventReporting<ServerEventReportingHandler<R, H>>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
     H: ServerEventHandler<R>,
 {
 }
@@ -361,10 +362,8 @@ where
     RC: ServerReceivingConfig,
     EC: ServerEventReportingConfig,
 {
-    /// Phantom `SC` owner.
-    phantom_send: PhantomData<SC>,
-    /// Phantom `RC` owner.
-    phantom_receive: PhantomData<RC>,
+    /// Phantom marker for `SC` and `RC`.
+    marker: PhantomData<(SC, RC)>,
     /// The event reporting configuration.
     event_reporting: EC,
 }
@@ -381,8 +380,7 @@ impl Default
 {
     fn default() -> Self {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ServerEventReportingUnknown,
         }
     }
@@ -397,11 +395,10 @@ where
     /// Configures the type of data the server intends to send to clients.
     pub fn sending<S>(self) -> ServerBuilder<ServerSending<S>, RC, EC>
     where
-        S: Serialize + Send + 'static,
+        S: Serialize + 'static,
     {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: self.event_reporting,
         }
     }
@@ -417,21 +414,19 @@ where
     /// clients.
     pub fn receiving<R>(self) -> ServerBuilder<SC, ServerReceiving<R>, EC>
     where
-        R: DeserializeOwned + Send + 'static,
+        R: DeserializeOwned + 'static,
     {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: self.event_reporting,
         }
     }
 }
 
-#[allow(private_bounds)]
 impl<S, R> ServerBuilder<ServerSending<S>, ServerReceiving<R>, ServerEventReportingUnknown>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Configures the server to receive events via callbacks.
     ///
@@ -449,11 +444,10 @@ where
         ServerEventReporting<ServerEventReportingCallbacks<R>>,
     >
     where
-        R: DeserializeOwned + Send + 'static,
+        R: DeserializeOwned + 'static,
     {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ServerEventReporting(ServerEventReportingCallbacks(callbacks)),
         }
     }
@@ -476,8 +470,7 @@ where
         H: ServerEventHandler<R>,
     {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ServerEventReporting(ServerEventReportingHandler {
                 handler,
                 phantom_receive: PhantomData,
@@ -499,8 +492,7 @@ where
         ServerEventReporting<ServerEventReportingChannel>,
     > {
         ServerBuilder {
-            phantom_send: PhantomData,
-            phantom_receive: PhantomData,
+            marker: PhantomData,
             event_reporting: ServerEventReporting(ServerEventReportingChannel),
         }
     }
@@ -513,8 +505,8 @@ impl<S, R>
         ServerEventReporting<ServerEventReportingCallbacks<R>>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Starts the server. This is effectively identical to
     /// `Server::start(...)`.
@@ -526,26 +518,39 @@ where
         let callbacks = self.event_reporting.0 .0;
 
         tokio::spawn(async move {
-            while let Some(event) = server_events.next().await {
+            while let Ok(event) = server_events.next_raw().await {
                 match event {
-                    ServerEvent::Connect { client_id } => {
+                    ServerEventRaw::Connect { client_id } => {
                         if let Some(ref connect) = callbacks.connect {
-                            tokio::spawn((*connect)(client_id));
+                            let connect = Arc::clone(connect);
+                            tokio::spawn(async move {
+                                (*connect)(client_id).await;
+                            });
                         }
                     }
-                    ServerEvent::Disconnect { client_id } => {
+                    ServerEventRaw::Disconnect { client_id } => {
                         if let Some(ref disconnect) = callbacks.disconnect {
-                            tokio::spawn((*disconnect)(client_id));
+                            let disconnect = Arc::clone(disconnect);
+                            tokio::spawn(async move {
+                                (*disconnect)(client_id).await;
+                            });
                         }
                     }
-                    ServerEvent::Receive { client_id, data } => {
+                    ServerEventRaw::Receive { client_id, data } => {
                         if let Some(ref receive) = callbacks.receive {
-                            tokio::spawn((*receive)(client_id, data));
+                            let receive = Arc::clone(receive);
+                            tokio::spawn(async move {
+                                let data = serde_json::from_slice(&data).unwrap();
+                                (*receive)(client_id, data).await;
+                            });
                         }
                     }
-                    ServerEvent::Stop => {
+                    ServerEventRaw::Stop => {
                         if let Some(ref stop) = callbacks.stop {
-                            tokio::spawn((*stop)());
+                            let stop = Arc::clone(stop);
+                            tokio::spawn(async move {
+                                (*stop)().await;
+                            });
                         }
                     }
                 }
@@ -563,8 +568,8 @@ impl<S, R, H>
         ServerEventReporting<ServerEventReportingHandler<R, H>>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
     H: ServerEventHandler<R> + 'static,
 {
     /// Starts the server. This is effectively identical to
@@ -577,27 +582,28 @@ where
         let handler = Arc::new(self.event_reporting.0.handler);
 
         tokio::spawn(async move {
-            while let Some(event) = server_events.next().await {
+            while let Ok(event) = server_events.next_raw().await {
                 match event {
-                    ServerEvent::Connect { client_id } => {
+                    ServerEventRaw::Connect { client_id } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_connect(client_id).await;
                         });
                     }
-                    ServerEvent::Disconnect { client_id } => {
+                    ServerEventRaw::Disconnect { client_id } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_disconnect(client_id).await;
                         });
                     }
-                    ServerEvent::Receive { client_id, data } => {
+                    ServerEventRaw::Receive { client_id, data } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
+                            let data = serde_json::from_slice(&data).unwrap();
                             handler.on_receive(client_id, data).await;
                         });
                     }
-                    ServerEvent::Stop => {
+                    ServerEventRaw::Stop => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_stop().await;
@@ -618,15 +624,12 @@ impl<S, R>
         ServerEventReporting<ServerEventReportingChannel>,
     >
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Starts the server. This is effectively identical to
     /// `Server::start(...)`.
-    pub async fn start<A>(
-        self,
-        addr: A,
-    ) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
+    pub async fn start<A>(self, addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -635,10 +638,7 @@ where
 }
 
 /// A command sent from the server handle to the background server task.
-pub enum ServerCommand<S>
-where
-    S: Serialize + Send + 'static,
-{
+pub enum ServerCommand {
     /// Stop the server.
     Stop,
     /// Send data to a client.
@@ -646,12 +646,12 @@ where
         /// The ID of the client to send the data to.
         client_id: usize,
         /// The data to send.
-        data: S,
+        data: Vec<u8>,
     },
     /// Send data to all clients.
     SendAll {
         /// The data to send.
-        data: S,
+        data: Vec<u8>,
     },
     /// Get the local server address.
     GetAddr,
@@ -723,7 +723,7 @@ pub enum ServerClientCommandReturn {
 ///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_events.next().await {
+///     while let Ok(event) = server_events.next().await {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -745,7 +745,7 @@ pub enum ServerClientCommandReturn {
 #[derive(Debug, Clone)]
 pub enum ServerEvent<R>
 where
-    R: DeserializeOwned + Send + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// A client connected.
     Connect {
@@ -768,20 +768,109 @@ where
     Stop,
 }
 
+/// Identical to `ServerEvent`, but with the received data in serialized form.
+#[derive(Debug, Clone)]
+enum ServerEventRaw {
+    /// A client connected.
+    Connect {
+        /// The ID of the client that connected.
+        client_id: usize,
+    },
+    /// A client disconnected.
+    Disconnect {
+        /// The ID of the client that disconnected.
+        client_id: usize,
+    },
+    /// Data received from a client.
+    Receive {
+        /// The ID of the client that sent the data.
+        client_id: usize,
+        /// The data itself.
+        data: Vec<u8>,
+    },
+    /// Server stopped.
+    Stop,
+}
+
+impl ServerEventRaw {
+    /// Deserializes this instance into a `ServerEvent`.
+    fn deserialize<R>(&self) -> io::Result<ServerEvent<R>>
+    where
+        R: DeserializeOwned + 'static,
+    {
+        match self {
+            Self::Connect { client_id } => Ok(ServerEvent::Connect {
+                client_id: *client_id,
+            }),
+            Self::Disconnect { client_id } => Ok(ServerEvent::Disconnect {
+                client_id: *client_id,
+            }),
+            Self::Receive { client_id, data } => match serde_json::from_slice(data) {
+                Ok(data) => Ok(ServerEvent::Receive {
+                    client_id: *client_id,
+                    data,
+                }),
+                Err(err) => generic_io_error(err),
+            },
+            Self::Stop => Ok(ServerEvent::Stop),
+        }
+    }
+}
+
+/// An asynchronous stream of server events.
+pub struct ServerEventStream<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// The event receiver channel.
+    event_receiver: Receiver<ServerEventRaw>,
+    /// Phantom marker for `R`.
+    marker: PhantomData<fn() -> R>,
+}
+
+impl<R> ServerEventStream<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// Consumes and returns the next value in the stream. This will return an
+    /// error if the stream is closed, or if there was an error while
+    /// deserializing data received.
+    pub async fn next(&mut self) -> io::Result<ServerEvent<R>> {
+        match self.event_receiver.recv().await {
+            Some(serialized_event) => serialized_event.deserialize(),
+            None => generic_io_error("event stream is closed"),
+        }
+    }
+
+    /// Identical to `next`, but doesn't deserialize the event. It does,
+    /// however, validate that the event can be deserialized without error.
+    async fn next_raw(&mut self) -> io::Result<ServerEventRaw> {
+        match self.event_receiver.recv().await {
+            Some(serialized_event) => {
+                serialized_event.deserialize::<R>()?;
+                Ok(serialized_event)
+            }
+            None => generic_io_error("event stream is closed"),
+        }
+    }
+}
+
 /// A handle to the server.
 pub struct ServerHandle<S>
 where
-    S: Serialize + Send + 'static,
+    S: Serialize + 'static,
 {
     /// The channel through which commands can be sent to the background task.
-    server_command_sender: CommandChannelSender<ServerCommand<S>, ServerCommandReturn>,
+    server_command_sender: CommandChannelSender<ServerCommand, ServerCommandReturn>,
     /// The handle to the background task.
     server_task_handle: JoinHandle<io::Result<()>>,
+    /// Phantom marker for `S`.
+    marker: PhantomData<S>,
 }
 
 impl<S> ServerHandle<S>
 where
-    S: Serialize + Send + 'static,
+    S: Serialize + 'static,
 {
     /// Stop the server, disconnect all clients, and shut down all network interfaces.
     ///
@@ -802,7 +891,7 @@ where
     ///         .unwrap();
     ///
     ///     // Wait for events until a client requests the server be stopped
-    ///     while let Some(event) = server_events.next().await {
+    ///     while let Ok(event) = server_events.next().await {
     ///         match event {
     ///             // Stop the server when a client requests it be stopped
     ///             ServerEvent::Receive { client_id, data } => {
@@ -851,7 +940,7 @@ where
     ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_events.next().await {
+    ///     while let Ok(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, send a greeting
     ///             ServerEvent::Connect { client_id } => {
@@ -863,9 +952,13 @@ where
     /// }
     /// ```
     pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
+        let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::Send { client_id, data })
+            .send_command(ServerCommand::Send {
+                client_id,
+                data: data_serialized,
+            })
             .await?;
         unwrap_enum!(value, ServerCommandReturn::Send)
     }
@@ -891,7 +984,7 @@ where
     ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_events.next().await {
+    ///     while let Ok(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, notify all clients
     ///             ServerEvent::Connect { client_id } => {
@@ -903,9 +996,12 @@ where
     /// }
     /// ```
     pub async fn send_all(&mut self, data: S) -> io::Result<()> {
+        let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
             .server_command_sender
-            .send_command(ServerCommand::SendAll { data })
+            .send_command(ServerCommand::SendAll {
+                data: data_serialized,
+            })
             .await?;
         unwrap_enum!(value, ServerCommandReturn::SendAll)
     }
@@ -962,7 +1058,7 @@ where
     ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_events.next().await {
+    ///     while let Ok(event) = server_events.next().await {
     ///         match event {
     ///             // When a client connects, get their address
     ///             ServerEvent::Connect { client_id } => {
@@ -1002,7 +1098,7 @@ where
     ///         .unwrap();
     ///
     ///     // Iterate over events
-    ///     while let Some(event) = server_events.next().await {
+    ///     while let Ok(event) = server_events.next().await {
     ///         match event {
     ///             // Disconnect a client if they send an even number
     ///             ServerEvent::Receive { client_id, data } => {
@@ -1053,7 +1149,7 @@ where
 ///         .unwrap();
 ///
 ///     // Iterate over events
-///     while let Some(event) = server_events.next().await {
+///     while let Ok(event) = server_events.next().await {
 ///         match event {
 ///             ServerEvent::Connect { client_id } => {
 ///                 println!("Client with ID {} connected", client_id);
@@ -1075,13 +1171,11 @@ where
 /// ```
 pub struct Server<S, R>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
-    /// Phantom value for `S`.
-    phantom_send: PhantomData<S>,
-    /// Phantom value for `R`.
-    phantom_receive: PhantomData<R>,
+    /// Phantom marker for `S` and `R`.
+    marker: PhantomData<(S, R)>,
 }
 
 impl Server<(), ()> {
@@ -1097,8 +1191,8 @@ impl Server<(), ()> {
 
 impl<S, R> Server<S, R>
 where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
+    S: Serialize + 'static,
+    R: DeserializeOwned + 'static,
 {
     /// Start a socket server.
     ///
@@ -1122,7 +1216,7 @@ where
     /// ```
     ///
     /// Neither the server handle nor the event receiver should be dropped until the server has been stopped. Prematurely dropping either one can cause unintended behavior.
-    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, EventStream<ServerEvent<R>>)>
+    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -1144,29 +1238,30 @@ where
         let server_handle = ServerHandle {
             server_command_sender,
             server_task_handle,
+            marker: PhantomData,
         };
 
         // Create an event stream for the server
-        let server_event_stream = EventStream::new(server_event_receiver);
+        let server_event_stream = ServerEventStream {
+            event_receiver: server_event_receiver,
+            marker: PhantomData,
+        };
 
         Ok((server_handle, server_event_stream))
     }
 }
 
 /// The server client loop. Handles received data and commands.
-async fn server_client_loop<R>(
+async fn server_client_loop(
     client_id: usize,
     mut socket: TcpStream,
     aes_key: [u8; AES_KEY_SIZE],
-    server_client_event_sender: Sender<ServerEvent<R>>,
+    server_client_event_sender: Sender<ServerEventRaw>,
     mut client_command_receiver: CommandChannelReceiver<
         ServerClientCommand,
         ServerClientCommandReturn,
     >,
-) -> io::Result<()>
-where
-    R: DeserializeOwned + Send + 'static,
-{
+) -> io::Result<()> {
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
 
@@ -1206,22 +1301,15 @@ where
                 }
 
                 // Decrypt the data
-                let data_buffer = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
+                let data_serialized = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
                     Ok(val) => Ok(val),
                     Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
                 }?;
 
-                // Deserialize the message data
-                if let Ok(data) = serde_json::from_slice(&data_buffer) {
-                    // Send an event to note that a piece of data has been received from
-                    // a client
-                    if let Err(_e) = server_client_event_sender.send(ServerEvent::Receive { client_id, data }).await {
-                        // Sending failed, disconnect the client
-                        socket.shutdown().await?;
-                        break;
-                    }
-                } else {
-                    // Deserialization failed, disconnect the client
+                // Send an event to note that a piece of data has been received from
+                // a client
+                if let Err(_e) = server_client_event_sender.send(ServerEventRaw::Receive { client_id, data: data_serialized }).await {
+                    // Sending failed, disconnect the client
                     socket.shutdown().await?;
                     break;
                 }
@@ -1316,18 +1404,15 @@ where
 }
 
 /// Starts a server client loop in the background.
-async fn server_client_handler<R>(
+async fn server_client_handler(
     client_id: usize,
     mut socket: TcpStream,
-    server_client_event_sender: Sender<ServerEvent<R>>,
+    server_client_event_sender: Sender<ServerEventRaw>,
     client_cleanup_sender: Sender<usize>,
 ) -> io::Result<(
     CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     JoinHandle<io::Result<()>>,
-)>
-where
-    R: DeserializeOwned + Send + 'static,
-{
+)> {
     // Generate RSA keys
     let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys().await)?;
     // Convert the RSA public key into a string...
@@ -1419,20 +1504,16 @@ where
 }
 
 /// The server loop. Handles incoming connections and commands.
-async fn server_loop<S, R>(
+async fn server_loop(
     listener: TcpListener,
-    server_event_sender: Sender<ServerEvent<R>>,
-    mut server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
+    server_event_sender: Sender<ServerEventRaw>,
+    mut server_command_receiver: CommandChannelReceiver<ServerCommand, ServerCommandReturn>,
     client_command_senders: &mut HashMap<
         usize,
         CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     >,
     client_join_handles: &mut HashMap<usize, JoinHandle<io::Result<()>>>,
-) -> io::Result<()>
-where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
-{
+) -> io::Result<()> {
     // ID assigned to the next client
     let mut next_client_id = 0usize;
     // Channel for indicating that a client needs to be cleaned up after
@@ -1468,7 +1549,7 @@ where
 
                         // Send an event to note that a client has connected successfully
                         if let Err(_e) = server_event_sender
-                            .send(ServerEvent::Connect { client_id })
+                            .send(ServerEventRaw::Connect { client_id })
                             .await
                         {
                             // Server is probably closed
@@ -1505,23 +1586,16 @@ where
                             ServerCommand::Send { client_id, data } => {
                                 let value = match client_command_senders.get_mut(&client_id) {
                                     Some(client_command_sender) => {
-                                        // Pre-serialize the data so that it only needs to be serialized once when
-                                        // sending to multiple clients
-                                        match into_generic_io_result(serde_json::to_vec(&data)) {
-                                            Ok(serialized_data) => {
-                                                // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
-                                                let shareable_data = Arc::<[u8]>::from(serialized_data);
+                                        // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                        let shareable_data = Arc::<[u8]>::from(data);
 
-                                                match client_command_sender.send_command(ServerClientCommand::Send { data: shareable_data }).await {
-                                                    Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                                    Err(_e) => {
-                                                        // The channel is closed, and the client has probably been
-                                                        // disconnected, so the error can be ignored
-                                                        Ok(())
-                                                    },
-                                                }
-                                            }
-                                            Err(e) => Err(e),
+                                        match client_command_sender.send_command(ServerClientCommand::Send { data: shareable_data }).await {
+                                            Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
+                                            Err(_e) => {
+                                                // The channel is closed, and the client has probably been
+                                                // disconnected, so the error can be ignored
+                                                Ok(())
+                                            },
                                         }
                                     },
                                     None => generic_io_error("invalid client"),
@@ -1533,29 +1607,22 @@ where
                             },
                             ServerCommand::SendAll { data } => {
                                 let value = {
-                                    // Pre-serialize the data so that it only needs to be serialized once when sending to
-                                    // multiple clients
-                                    match into_generic_io_result(serde_json::to_vec(&data)) {
-                                        Ok(serialized_data) => {
-                                            // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
-                                            let shareable_data = Arc::<[u8]>::from(serialized_data);
+                                    // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                    let shareable_data = Arc::<[u8]>::from(data);
 
-                                            let send_futures = client_command_senders.iter_mut().map(|(_client_id, client_command_sender)| async {
-                                                match client_command_sender.send_command(ServerClientCommand::Send { data: Arc::clone(&shareable_data) }).await {
-                                                    Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
-                                                    Err(_e) => {
-                                                        // The channel is closed, and the client has probably been
-                                                        // disconnected, so the error can be ignored
-                                                        Ok(())
-                                                    }
-                                                }
-                                            });
-
-                                            let resolved = futures::future::join_all(send_futures).await;
-                                            resolved.into_iter().collect::<io::Result<Vec<_>>>().map(|_| ())
+                                    let send_futures = client_command_senders.iter_mut().map(|(_client_id, client_command_sender)| async {
+                                        match client_command_sender.send_command(ServerClientCommand::Send { data: Arc::clone(&shareable_data) }).await {
+                                            Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
+                                            Err(_e) => {
+                                                // The channel is closed, and the client has probably been
+                                                // disconnected, so the error can be ignored
+                                                Ok(())
+                                            }
                                         }
-                                        Err(e) => Err(e),
-                                    }
+                                    });
+
+                                    let resolved = futures::future::join_all(send_futures).await;
+                                    resolved.into_iter().collect::<io::Result<Vec<_>>>().map(|_| ())
                                 };
 
                                 // If a command fails to send, the client has probably disconnected,
@@ -1634,7 +1701,7 @@ where
                         }
 
                         // Send an event to note that a client has disconnected
-                        if let Err(_e) = server_event_sender.send(ServerEvent::Disconnect { client_id }).await {
+                        if let Err(_e) = server_event_sender.send(ServerEventRaw::Disconnect { client_id }).await {
                             // Server is probably closed, exit
                             break;
                         }
@@ -1652,15 +1719,11 @@ where
 }
 
 /// Starts the server loop task in the background.
-async fn server_handler<S, R>(
+async fn server_handler(
     listener: TcpListener,
-    server_event_sender: Sender<ServerEvent<R>>,
-    server_command_receiver: CommandChannelReceiver<ServerCommand<S>, ServerCommandReturn>,
-) -> io::Result<()>
-where
-    S: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
-{
+    server_event_sender: Sender<ServerEventRaw>,
+    server_command_receiver: CommandChannelReceiver<ServerCommand, ServerCommandReturn>,
+) -> io::Result<()> {
     // Collection of channels for sending commands from the background server task to a background client task
     let mut client_command_senders: HashMap<
         usize,
@@ -1709,7 +1772,7 @@ where
     .collect::<io::Result<Vec<_>>>()?;
 
     // Send a stop event, ignoring send errors
-    if let Err(_e) = server_event_sender.send(ServerEvent::Stop).await {}
+    if let Err(_e) = server_event_sender.send(ServerEventRaw::Stop).await {}
 
     // Return server loop result
     server_exit
