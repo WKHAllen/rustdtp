@@ -168,7 +168,7 @@ where
 pub struct ClientSendingUnknown;
 
 /// Known client sending type, stored as the type parameter `S`.
-pub struct ClientSending<S>(PhantomData<S>)
+pub struct ClientSending<S>(PhantomData<fn() -> S>)
 where
     S: Serialize + 'static;
 
@@ -183,7 +183,7 @@ impl<S> ClientSendingConfig for ClientSending<S> where S: Serialize + 'static {}
 pub struct ClientReceivingUnknown;
 
 /// Known client receiving type, stored as the type parameter `R`.
-pub struct ClientReceiving<R>(PhantomData<R>)
+pub struct ClientReceiving<R>(PhantomData<fn() -> R>)
 where
     R: DeserializeOwned + 'static;
 
@@ -214,7 +214,7 @@ where
     /// The event handler instance.
     handler: H,
     /// Phantom `R` owner.
-    phantom_receive: PhantomData<R>,
+    phantom_receive: PhantomData<fn() -> R>,
 }
 
 /// Client event reporting via a channel.
@@ -292,7 +292,7 @@ where
     EC: ClientEventReportingConfig,
 {
     /// Phantom marker for `SC` and `RC`.
-    marker: PhantomData<(SC, RC)>,
+    marker: PhantomData<fn() -> (SC, RC)>,
     /// The event reporting configuration.
     event_reporting: EC,
 }
@@ -680,7 +680,7 @@ where
     /// The handle to the background task.
     client_task_handle: JoinHandle<io::Result<()>>,
     /// Phantom marker for `S`.
-    marker: PhantomData<S>,
+    marker: PhantomData<fn() -> S>,
 }
 
 impl<S> ClientHandle<S>
@@ -874,7 +874,7 @@ where
     R: DeserializeOwned + 'static,
 {
     /// Phantom marker for `S` and `R`.
-    marker: PhantomData<(S, R)>,
+    marker: PhantomData<fn() -> (S, R)>,
 }
 
 impl Client<(), ()> {
