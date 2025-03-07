@@ -11,7 +11,7 @@ The Data Transfer Protocol (DTP) is a larger project to make ergonomic network p
 Add the package in `Cargo.toml`:
 
 ```toml
-rustdtp = "0.7"
+rustdtp = "0.8"
 ```
 
 ## Creating a server

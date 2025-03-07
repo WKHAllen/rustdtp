@@ -11,7 +11,7 @@
 //! Add the package in `Cargo.toml`:
 //!
 //! ```toml
-//! rustdtp = "0.7"
+//! rustdtp = "0.8"
 //! ```
 //!
 //! ## Creating a server
@@ -98,6 +98,20 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
+// #![forbid(unsafe_code)]
+// #![deny(missing_docs)]
+// #![warn(unused_mut)]
+// #![warn(clippy::missing_docs_in_private_items)]
+// #![deny(clippy::all)]
+// #![warn(clippy::pedantic)]
+// #![warn(clippy::nursery)]
+// #![warn(clippy::cargo)]
+// #![allow(clippy::wildcard_imports)]
+// #![allow(clippy::if_not_else)]
+// #![allow(clippy::ignored_unit_patterns)]
+// #![allow(clippy::needless_borrows_for_generic_args)]
+// #![allow(clippy::module_name_repetitions)]
+// #![allow(clippy::multiple_crate_versions)]
 
 mod client;
 mod command_channel;
@@ -116,6 +130,8 @@ mod tests {
     use super::*;
     use crate::crypto;
     use crate::util::*;
+    use rand::Rng;
+    use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::mpsc::{channel, Sender};
@@ -395,16 +411,18 @@ mod tests {
     /// Test sending large random messages between server and client.
     #[tokio::test]
     async fn test_large_send() {
-        let (mut server, mut server_events) =
-            Server::<u128, u128>::start(SERVER_ADDR).await.unwrap();
+        let (mut server, mut server_events) = Server::<Vec<u8>, Vec<u8>>::start(SERVER_ADDR)
+            .await
+            .unwrap();
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
         println!("Server address: {}", server_addr);
         sleep!();
 
-        let (mut client, mut client_events) =
-            Client::<u128, u128>::connect(server_addr).await.unwrap();
+        let (mut client, mut client_events) = Client::<Vec<u8>, Vec<u8>>::connect(server_addr)
+            .await
+            .unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
@@ -418,12 +436,26 @@ mod tests {
         ));
         sleep!();
 
-        let large_msg_from_server: u128 = rand::random();
-        let large_msg_from_client: u128 = rand::random();
-        println!("Large message from server: {}", large_msg_from_server);
-        println!("Large message from client: {}", large_msg_from_client);
+        let mut rng = rand::thread_rng();
+        let large_msg_from_server_len = rng.gen_range(32768..65536);
+        let mut large_msg_from_server = vec![0u8; large_msg_from_server_len];
+        rng.fill_bytes(&mut large_msg_from_server[..]);
+        let large_msg_from_client_len = rng.gen_range(16384..32768);
+        let mut large_msg_from_client = vec![0u8; large_msg_from_client_len];
+        rng.fill_bytes(&mut large_msg_from_client[..]);
+        println!(
+            "Generated large message from server ({} bytes)",
+            large_msg_from_server_len
+        );
+        println!(
+            "Generated large message from client ({} bytes)",
+            large_msg_from_client_len
+        );
 
-        server.send_all(large_msg_from_server).await.unwrap();
+        server
+            .send_all(large_msg_from_server.clone())
+            .await
+            .unwrap();
         sleep!();
 
         let client_large_msg_event = client_events.next().await.unwrap();
@@ -435,7 +467,7 @@ mod tests {
         }
         sleep!();
 
-        client.send(large_msg_from_client).await.unwrap();
+        client.send(large_msg_from_client.clone()).await.unwrap();
         sleep!();
 
         let server_large_msg_event = server_events.next().await.unwrap();
@@ -495,12 +527,15 @@ mod tests {
         ));
         sleep!();
 
-        let num_server_messages: usize = (rand::random::<usize>() % 64) + 64;
-        let num_client_messages: usize = (rand::random::<usize>() % 128) + 128;
-        let server_messages: Vec<u16> = vec![rand::random::<u16>() % 1024; num_server_messages];
-        let client_messages: Vec<u16> = vec![rand::random::<u16>() % 1024; num_client_messages];
-        println!("Generated {} server messages", num_server_messages);
-        println!("Generated {} client messages", num_client_messages);
+        let mut rng = rand::thread_rng();
+        let server_messages_len = rng.gen_range(64..128);
+        let mut server_messages = vec![0u16; server_messages_len];
+        rng.fill(&mut server_messages[..]);
+        let client_messages_len = rng.gen_range(128..256);
+        let mut client_messages = vec![0u16; client_messages_len];
+        rng.fill(&mut client_messages[..]);
+        println!("Generated {} server messages", server_messages_len);
+        println!("Generated {} client messages", client_messages_len);
 
         for &server_message in &server_messages {
             client.send(server_message).await.unwrap();

@@ -1,7 +1,8 @@
 //! Command channel utilities.
 
 use std::io;
-use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 /// An error associated with a command channel.
 pub enum CommandChannelError<T> {

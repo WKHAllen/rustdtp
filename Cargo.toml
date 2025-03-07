@@ -1,6 +1,6 @@
 [package]
 name = "rustdtp"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["WKHAllen <wkhallen@gmail.com>"]
 license = "MIT"
 description = "Cross-platform networking interfaces for Rust."
@@ -12,11 +12,11 @@ edition = "2021"
 rust-version = "1.75"
 
 [dependencies]
-aes-gcm = "0.10.3"
+aes-gcm = "0.10"
 futures = "0.3"
-rand = "0.8.5"
-rsa = { version = "0.9.6", features = ["sha2"] }
+rand = "0.8"
+rsa = { version = "0.9", features = ["sha2"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10.8"
-tokio = { version = "1.35", features = ["full"] }
+sha2 = "0.10"
+tokio = { version = "1.43", features = ["full"] }

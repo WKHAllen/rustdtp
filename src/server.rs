@@ -5,7 +5,8 @@ use super::timeout::*;
 use crate::crypto::*;
 use crate::util::*;
 use rsa::pkcs8::EncodePublicKey;
-use serde::{de::DeserializeOwned, ser::Serialize};
+use serde::de::DeserializeOwned;
+use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
@@ -1255,13 +1256,78 @@ where
 async fn server_client_loop(
     client_id: usize,
     mut socket: TcpStream,
-    aes_key: [u8; AES_KEY_SIZE],
     server_client_event_sender: Sender<ServerEventRaw>,
     mut client_command_receiver: CommandChannelReceiver<
         ServerClientCommand,
         ServerClientCommandReturn,
     >,
 ) -> io::Result<()> {
+    // Generate RSA keys
+    let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys().await)?;
+    // Convert the RSA public key into a string...
+    let rsa_pub_str =
+        into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
+    // ...and then into bytes
+    let rsa_pub_bytes = rsa_pub_str.as_bytes();
+    // Create the buffer containing the RSA public key and its size
+    let mut rsa_pub_buffer = encode_message_size(rsa_pub_bytes.len()).to_vec();
+    // Extend the buffer with the RSA public key bytes
+    rsa_pub_buffer.extend(rsa_pub_bytes);
+    // Send the RSA public key to the client
+    let n = socket.write(&rsa_pub_buffer).await?;
+    // Flush the stream
+    socket.flush().await?;
+
+    // If there were no bytes written, or if there were fewer
+    // bytes written than there should have been, close the
+    // socket and exit
+    if n != rsa_pub_buffer.len() {
+        socket.shutdown().await?;
+        return generic_io_error("failed to write RSA public key data to socket");
+    }
+
+    // Buffer in which to receive the size portion of the AES key
+    let mut aes_key_size_buffer = [0; LEN_SIZE];
+    // Read the AES key from the client
+    let n_size = handshake_timeout! {
+        socket.read(&mut aes_key_size_buffer)
+    }??;
+
+    // If there were no bytes read, or if there were fewer bytes read than there
+    // should have been, close the socket and exit
+    if n_size != LEN_SIZE {
+        socket.shutdown().await?;
+        return generic_io_error("failed to read AES key size from socket");
+    };
+
+    // Decode the size portion of the AES key
+    let aes_key_size = decode_message_size(&aes_key_size_buffer);
+    // Initialize the buffer for the AES key
+    let mut aes_key_buffer = vec![0; aes_key_size];
+
+    // Read the AES key portion from the client socket, returning an error if the
+    // socket could not be read
+    let n_aes_key = data_read_timeout! {
+        socket.read(&mut aes_key_buffer)
+    }??;
+
+    // If there were no bytes read, or if there were fewer bytes read than there
+    // should have been, close the socket and exit
+    if n_aes_key != aes_key_size {
+        socket.shutdown().await?;
+        return generic_io_error("failed to read AES key data from socket");
+    }
+
+    // Decrypt the AES key
+    let aes_key_decrypted =
+        into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer.into()).await)?;
+
+    // Assert that the AES key is the correct size
+    let aes_key: [u8; AES_KEY_SIZE] = match aes_key_decrypted.try_into() {
+        Ok(val) => Ok(val),
+        Err(_e) => generic_io_error("unexpected size for AES key"),
+    }?;
+
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
 
@@ -1406,79 +1472,13 @@ async fn server_client_loop(
 /// Starts a server client loop in the background.
 async fn server_client_handler(
     client_id: usize,
-    mut socket: TcpStream,
+    socket: TcpStream,
     server_client_event_sender: Sender<ServerEventRaw>,
     client_cleanup_sender: Sender<usize>,
 ) -> io::Result<(
     CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     JoinHandle<io::Result<()>>,
 )> {
-    // Generate RSA keys
-    let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys().await)?;
-    // Convert the RSA public key into a string...
-    let rsa_pub_str =
-        into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
-    // ...and then into bytes
-    let rsa_pub_bytes = rsa_pub_str.as_bytes();
-    // Create the buffer containing the RSA public key and its size
-    let mut rsa_pub_buffer = encode_message_size(rsa_pub_bytes.len()).to_vec();
-    // Extend the buffer with the RSA public key bytes
-    rsa_pub_buffer.extend(rsa_pub_bytes);
-    // Send the RSA public key to the client
-    let n = socket.write(&rsa_pub_buffer).await?;
-    // Flush the stream
-    socket.flush().await?;
-
-    // If there were no bytes written, or if there were fewer
-    // bytes written than there should have been, close the
-    // socket and exit
-    if n != rsa_pub_buffer.len() {
-        socket.shutdown().await?;
-        return generic_io_error("failed to write RSA public key data to socket");
-    }
-
-    // Buffer in which to receive the size portion of the AES key
-    let mut aes_key_size_buffer = [0; LEN_SIZE];
-    // Read the AES key from the client
-    let n_size = handshake_timeout! {
-        socket.read(&mut aes_key_size_buffer)
-    }??;
-
-    // If there were no bytes read, or if there were fewer bytes read than there
-    // should have been, close the socket and exit
-    if n_size != LEN_SIZE {
-        socket.shutdown().await?;
-        return generic_io_error("failed to read AES key size from socket");
-    };
-
-    // Decode the size portion of the AES key
-    let aes_key_size = decode_message_size(&aes_key_size_buffer);
-    // Initialize the buffer for the AES key
-    let mut aes_key_buffer = vec![0; aes_key_size];
-
-    // Read the AES key portion from the client socket, returning an error if the
-    // socket could not be read
-    let n_aes_key = data_read_timeout! {
-        socket.read(&mut aes_key_buffer)
-    }??;
-
-    // If there were no bytes read, or if there were fewer bytes read than there
-    // should have been, close the socket and exit
-    if n_aes_key != aes_key_size {
-        socket.shutdown().await?;
-        return generic_io_error("failed to read AES key data from socket");
-    }
-
-    // Decrypt the AES key
-    let aes_key_decrypted =
-        into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer.into()).await)?;
-
-    // Assert that the AES key is the correct size
-    let aes_key: [u8; AES_KEY_SIZE] = match aes_key_decrypted.try_into() {
-        Ok(val) => Ok(val),
-        Err(_e) => generic_io_error("unexpected size for AES key"),
-    }?;
-
     // Channels for sending commands from the background server task to a background client task
     let (client_command_sender, client_command_receiver) = command_channel();
 
@@ -1487,7 +1487,6 @@ async fn server_client_handler(
         let res = server_client_loop(
             client_id,
             socket,
-            aes_key,
             server_client_event_sender,
             client_command_receiver,
         )

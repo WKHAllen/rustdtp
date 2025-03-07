@@ -9,5 +9,8 @@ test:
 lint:
 	cargo clippy -- -D warnings
 
+docs:
+	cargo doc --open
+
 clean:
 	cargo clean
