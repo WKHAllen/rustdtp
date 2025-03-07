@@ -1169,7 +1169,7 @@ async fn client_loop(
     }
 
     // Send a disconnect event, ignoring send errors
-    if let Err(_e) = client_event_sender.send(ClientEventRaw::Disconnect).await {}
+    _ = client_event_sender.send(ClientEventRaw::Disconnect).await;
 
     Ok(())
 }

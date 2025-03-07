@@ -1449,7 +1449,7 @@ async fn server_client_loop(
                                 // Return the status of the remove operation, ignoring
                                 // failures, since a failure indicates that the client has
                                 // probably already disconnected
-                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value)).await {}
+                                _ = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value)).await;
 
                                 // Break the client loop
                                 break;
@@ -1494,7 +1494,7 @@ async fn server_client_handler(
 
         // Tell the server to clean up after the client, ignoring failures, since a failure
         // indicates that the server has probably closed
-        if let Err(_e) = client_cleanup_sender.send(client_id).await {}
+        _ = client_cleanup_sender.send(client_id).await;
 
         res
     });
@@ -1771,7 +1771,7 @@ async fn server_handler(
     .collect::<io::Result<Vec<_>>>()?;
 
     // Send a stop event, ignoring send errors
-    if let Err(_e) = server_event_sender.send(ServerEventRaw::Stop).await {}
+    _ = server_event_sender.send(ServerEventRaw::Stop).await;
 
     // Return server loop result
     server_exit
