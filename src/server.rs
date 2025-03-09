@@ -517,6 +517,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
+    #[allow(clippy::future_not_send)]
     pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
@@ -585,6 +586,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
+    #[allow(clippy::future_not_send)]
     pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
@@ -644,6 +646,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
+    #[allow(clippy::future_not_send)]
     pub async fn start<A>(self, addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
@@ -1081,6 +1084,7 @@ where
     ///
     /// This will return an error if the server socket has closed, or if data
     /// serialization fails.
+    #[allow(clippy::future_not_send)]
     pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
         let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
@@ -1131,6 +1135,7 @@ where
     ///
     /// This will return an error if the server socket has closed, or if data
     /// serialization fails.
+    #[allow(clippy::future_not_send)]
     pub async fn send_all(&mut self, data: S) -> io::Result<()> {
         let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
@@ -1380,6 +1385,7 @@ where
     ///
     /// This will return an error if a TCP listener cannot be bound to the
     /// provided address.
+    #[allow(clippy::future_not_send)]
     pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,

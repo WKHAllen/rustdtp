@@ -444,6 +444,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Client::connect`].
+    #[allow(clippy::future_not_send)]
     pub async fn connect<A>(self, addr: A) -> io::Result<ClientHandle<S>>
     where
         A: ToSocketAddrs,
@@ -497,6 +498,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Client::connect`].
+    #[allow(clippy::future_not_send)]
     pub async fn connect<A>(self, addr: A) -> io::Result<ClientHandle<S>>
     where
         A: ToSocketAddrs,
@@ -545,6 +547,7 @@ where
     ///
     /// The set of errors that can occur are identical to that of
     /// [`Client::connect`].
+    #[allow(clippy::future_not_send)]
     pub async fn connect<A>(self, addr: A) -> io::Result<(ClientHandle<S>, ClientEventStream<R>)>
     where
         A: ToSocketAddrs,
@@ -863,6 +866,7 @@ where
     ///
     /// This will return an error if the client socket has closed, or if data
     /// serialization fails.
+    #[allow(clippy::future_not_send)]
     pub async fn send(&mut self, data: S) -> io::Result<()> {
         let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
@@ -1046,6 +1050,7 @@ where
     ///
     /// This will return an error if the client cannot connect to a server at
     /// the provided address, or if the key exchange fails.
+    #[allow(clippy::future_not_send)]
     pub async fn connect<A>(addr: A) -> io::Result<(ClientHandle<S>, ClientEventStream<R>)>
     where
         A: ToSocketAddrs,

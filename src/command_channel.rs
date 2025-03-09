@@ -48,6 +48,7 @@ impl<S, R> CommandChannelSender<S, R> {
     /// Returns a result containing the received return value of the command, or
     /// the error variant if an error occurred while interacting with the
     /// channel.
+    #[allow(clippy::future_not_send)]
     pub async fn send_command(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
         match self.command_sender.send(command).await {
             Ok(()) => Ok(()),
@@ -79,6 +80,7 @@ impl<S, R> CommandChannelReceiver<S, R> {
     ///
     /// Returns a result containing the received command, or the error variant
     /// if an error occurred while interacting with the channel.
+    #[allow(clippy::future_not_send)]
     pub async fn recv_command(&mut self) -> Result<S, CommandChannelError<S>> {
         let command = match self.command_receiver.recv().await {
             Some(value) => Ok(value),
@@ -95,7 +97,7 @@ impl<S, R> CommandChannelReceiver<S, R> {
     ///
     /// Returns a result of the error variant if an error occurred while
     /// interacting with the channel.
-    #[allow(clippy::needless_pass_by_ref_mut)]
+    #[allow(clippy::future_not_send, clippy::needless_pass_by_ref_mut)]
     pub async fn command_return(
         &mut self,
         command_return: R,
