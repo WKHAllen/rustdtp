@@ -16,14 +16,14 @@ pub enum CommandChannelError<T> {
 
 impl<T> CommandChannelError<T> {
     /// Gets the message associated with a command channel error.
-    pub fn message(&self) -> &'static str {
+    pub const fn message() -> &'static str {
         "command channel closed"
     }
 }
 
 impl<T> From<CommandChannelError<T>> for io::Error {
-    fn from(e: CommandChannelError<T>) -> Self {
-        Self::new(io::ErrorKind::Other, e.message())
+    fn from(_: CommandChannelError<T>) -> Self {
+        Self::new(io::ErrorKind::Other, CommandChannelError::<T>::message())
     }
 }
 
@@ -43,9 +43,11 @@ pub struct CommandChannelSender<S, R> {
 impl<S, R> CommandChannelSender<S, R> {
     /// Send a command to the receiver.
     ///
-    /// `command`: the command to send.
+    /// - `command`: the command to send.
     ///
-    /// Returns a result containing the received return value of the command, or the error variant if an error occurred while interacting with the channel.
+    /// Returns a result containing the received return value of the command, or
+    /// the error variant if an error occurred while interacting with the
+    /// channel.
     pub async fn send_command(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
         match self.command_sender.send(command).await {
             Ok(()) => Ok(()),
@@ -75,7 +77,8 @@ pub struct CommandChannelReceiver<S, R> {
 impl<S, R> CommandChannelReceiver<S, R> {
     /// Receive a command from the command channel.
     ///
-    /// Returns a result containing the received command, or the error variant if an error occurred while interacting with the channel.
+    /// Returns a result containing the received command, or the error variant
+    /// if an error occurred while interacting with the channel.
     pub async fn recv_command(&mut self) -> Result<S, CommandChannelError<S>> {
         let command = match self.command_receiver.recv().await {
             Some(value) => Ok(value),
@@ -85,11 +88,14 @@ impl<S, R> CommandChannelReceiver<S, R> {
         Ok(command)
     }
 
-    /// Pass the return value of a command through the channel back to the sender.
+    /// Pass the return value of a command through the channel back to the
+    /// sender.
     ///
-    /// `command_return`: the return value of the command.
+    /// - `command_return`: the return value of the command.
     ///
-    /// Returns a result of the error variant if an error occurred while interacting with the channel.
+    /// Returns a result of the error variant if an error occurred while
+    /// interacting with the channel.
+    #[allow(clippy::needless_pass_by_ref_mut)]
     pub async fn command_return(
         &mut self,
         command_return: R,
@@ -108,7 +114,8 @@ impl<S, R> CommandChannelReceiver<S, R> {
 /// - `S`: the type representing the command.
 /// - `R`: the type representing the return value from the command.
 ///
-/// The internal channels are buffered to support only a single value. This is because only one command should be processed at a time.
+/// The internal channels are buffered to support only a single value. This is
+/// because only one command should be processed at a time.
 pub fn command_channel<S, R>() -> (CommandChannelSender<S, R>, CommandChannelReceiver<S, R>) {
     let (command_sender, command_receiver) = channel(1);
     let (command_return_sender, command_return_receiver) = channel(1);

@@ -70,6 +70,7 @@ use tokio::task::JoinHandle;
 /// # }
 /// ```
 #[allow(clippy::type_complexity)]
+#[must_use = "event callbacks do nothing unless you configure them for a server"]
 pub struct ServerEventCallbacks<R>
 where
     R: DeserializeOwned + 'static,
@@ -92,8 +93,13 @@ where
 {
     /// Creates a new server event callbacks configuration with all callbacks
     /// empty.
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            connect: None,
+            disconnect: None,
+            receive: None,
+            stop: None,
+        }
     }
 
     /// Registers a callback on the `connect` event.
@@ -144,12 +150,7 @@ where
     R: DeserializeOwned + 'static,
 {
     fn default() -> Self {
-        Self {
-            connect: None,
-            disconnect: None,
-            receive: None,
-            stop: None,
-        }
+        Self::new()
     }
 }
 
@@ -246,7 +247,7 @@ where
     S: Serialize + 'static;
 
 /// A server sending marker trait.
-pub(crate) trait ServerSendingConfig {}
+trait ServerSendingConfig {}
 
 impl ServerSendingConfig for ServerSendingUnknown {}
 
@@ -261,7 +262,7 @@ where
     R: DeserializeOwned + 'static;
 
 /// A server receiving marker trait.
-pub(crate) trait ServerReceivingConfig {}
+trait ServerReceivingConfig {}
 
 impl ServerReceivingConfig for ServerReceivingUnknown {}
 
@@ -294,7 +295,7 @@ where
 pub struct ServerEventReportingChannel;
 
 /// A server event reporting marker trait.
-pub(crate) trait ServerEventReportingConfig {}
+trait ServerEventReportingConfig {}
 
 impl ServerEventReportingConfig for ServerEventReportingUnknown {}
 
@@ -357,6 +358,7 @@ impl ServerEventReportingConfig for ServerEventReporting<ServerEventReportingCha
 /// # }
 /// ```
 #[allow(private_bounds)]
+#[must_use = "server builders do nothing unless `start` is called"]
 pub struct ServerBuilder<SC, RC, EC>
 where
     SC: ServerSendingConfig,
@@ -371,8 +373,11 @@ where
 
 impl ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown> {
     /// Creates a new server builder.
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            marker: PhantomData,
+            event_reporting: ServerEventReportingUnknown,
+        }
     }
 }
 
@@ -380,10 +385,7 @@ impl Default
     for ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown>
 {
     fn default() -> Self {
-        ServerBuilder {
-            marker: PhantomData,
-            event_reporting: ServerEventReportingUnknown,
-        }
+        Self::new()
     }
 }
 
@@ -509,8 +511,12 @@ where
     S: Serialize + 'static,
     R: DeserializeOwned + 'static,
 {
-    /// Starts the server. This is effectively identical to
-    /// `Server::start(...)`.
+    /// Starts the server. This is effectively identical to [`Server::start`].
+    ///
+    /// # Errors
+    ///
+    /// The set of errors that can occur are identical to that of
+    /// [`Server::start`].
     pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
@@ -521,7 +527,7 @@ where
         tokio::spawn(async move {
             while let Ok(event) = server_events.next_raw().await {
                 match event {
-                    ServerEventRaw::Connect { client_id } => {
+                    ServerEventRawSafe::Connect { client_id } => {
                         if let Some(ref connect) = callbacks.connect {
                             let connect = Arc::clone(connect);
                             tokio::spawn(async move {
@@ -529,7 +535,7 @@ where
                             });
                         }
                     }
-                    ServerEventRaw::Disconnect { client_id } => {
+                    ServerEventRawSafe::Disconnect { client_id } => {
                         if let Some(ref disconnect) = callbacks.disconnect {
                             let disconnect = Arc::clone(disconnect);
                             tokio::spawn(async move {
@@ -537,16 +543,16 @@ where
                             });
                         }
                     }
-                    ServerEventRaw::Receive { client_id, data } => {
+                    ServerEventRawSafe::Receive { client_id, data } => {
                         if let Some(ref receive) = callbacks.receive {
                             let receive = Arc::clone(receive);
                             tokio::spawn(async move {
-                                let data = serde_json::from_slice(&data).unwrap();
+                                let data = data.deserialize();
                                 (*receive)(client_id, data).await;
                             });
                         }
                     }
-                    ServerEventRaw::Stop => {
+                    ServerEventRawSafe::Stop => {
                         if let Some(ref stop) = callbacks.stop {
                             let stop = Arc::clone(stop);
                             tokio::spawn(async move {
@@ -573,8 +579,12 @@ where
     R: DeserializeOwned + 'static,
     H: ServerEventHandler<R> + 'static,
 {
-    /// Starts the server. This is effectively identical to
-    /// `Server::start(...)`.
+    /// Starts the server. This is effectively identical to [`Server::start`].
+    ///
+    /// # Errors
+    ///
+    /// The set of errors that can occur are identical to that of
+    /// [`Server::start`].
     pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
@@ -585,26 +595,26 @@ where
         tokio::spawn(async move {
             while let Ok(event) = server_events.next_raw().await {
                 match event {
-                    ServerEventRaw::Connect { client_id } => {
+                    ServerEventRawSafe::Connect { client_id } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_connect(client_id).await;
                         });
                     }
-                    ServerEventRaw::Disconnect { client_id } => {
+                    ServerEventRawSafe::Disconnect { client_id } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_disconnect(client_id).await;
                         });
                     }
-                    ServerEventRaw::Receive { client_id, data } => {
+                    ServerEventRawSafe::Receive { client_id, data } => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
-                            let data = serde_json::from_slice(&data).unwrap();
+                            let data = data.deserialize();
                             handler.on_receive(client_id, data).await;
                         });
                     }
-                    ServerEventRaw::Stop => {
+                    ServerEventRawSafe::Stop => {
                         let handler = Arc::clone(&handler);
                         tokio::spawn(async move {
                             handler.on_stop().await;
@@ -628,8 +638,12 @@ where
     S: Serialize + 'static,
     R: DeserializeOwned + 'static,
 {
-    /// Starts the server. This is effectively identical to
-    /// `Server::start(...)`.
+    /// Starts the server. This is effectively identical to [`Server::start`].
+    ///
+    /// # Errors
+    ///
+    /// The set of errors that can occur are identical to that of
+    /// [`Server::start`].
     pub async fn start<A>(self, addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
@@ -818,6 +832,105 @@ impl ServerEventRaw {
     }
 }
 
+/// The serialized data component of a server receive event. The data is
+/// guaranteed to be deserializable into an instance of `R`.
+#[derive(Debug, Clone)]
+struct ServerEventRawSafeData<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// The raw data.
+    data: Vec<u8>,
+    /// Phantom marker for `R`.
+    marker: PhantomData<fn() -> R>,
+}
+
+/// Identical to `ServerEventRaw`, but with the guarantee that the data can be
+/// deserialized into an instance of `R`.
+#[derive(Debug, Clone)]
+enum ServerEventRawSafe<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// A client connected.
+    Connect {
+        /// The ID of the client that connected.
+        client_id: usize,
+    },
+    /// A client disconnected.
+    Disconnect {
+        /// The ID of the client that disconnected.
+        client_id: usize,
+    },
+    /// Data received from a client.
+    Receive {
+        /// The ID of the client that sent the data.
+        client_id: usize,
+        /// The data itself.
+        data: ServerEventRawSafeData<R>,
+    },
+    /// Server stopped.
+    Stop,
+}
+
+impl<R> TryFrom<ServerEventRaw> for ServerEventRawSafe<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    type Error = io::Error;
+
+    fn try_from(value: ServerEventRaw) -> std::result::Result<Self, Self::Error> {
+        value.deserialize::<R>()?;
+
+        Ok(match value {
+            ServerEventRaw::Connect { client_id } => Self::Connect { client_id },
+            ServerEventRaw::Disconnect { client_id } => Self::Disconnect { client_id },
+            ServerEventRaw::Receive { client_id, data } => Self::Receive {
+                client_id,
+                data: ServerEventRawSafeData {
+                    data,
+                    marker: PhantomData,
+                },
+            },
+            ServerEventRaw::Stop => Self::Stop,
+        })
+    }
+}
+
+impl<R> ServerEventRawSafeData<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// Deserialize the raw data into an instance of `R`. This is guaranteed to
+    /// succeed.
+    fn deserialize(&self) -> R {
+        serde_json::from_slice(&self.data).unwrap()
+    }
+}
+
+impl<R> ServerEventRawSafe<R>
+where
+    R: DeserializeOwned + 'static,
+{
+    /// Deserializes this instance into a `ServerEvent`.
+    #[allow(dead_code)]
+    fn deserialize(&self) -> ServerEvent<R> {
+        match self {
+            Self::Connect { client_id } => ServerEvent::Connect {
+                client_id: *client_id,
+            },
+            Self::Disconnect { client_id } => ServerEvent::Disconnect {
+                client_id: *client_id,
+            },
+            Self::Receive { client_id, data } => ServerEvent::Receive {
+                client_id: *client_id,
+                data: data.deserialize(),
+            },
+            Self::Stop => ServerEvent::Stop,
+        }
+    }
+}
+
 /// An asynchronous stream of server events.
 pub struct ServerEventStream<R>
 where
@@ -833,9 +946,12 @@ impl<R> ServerEventStream<R>
 where
     R: DeserializeOwned + 'static,
 {
-    /// Consumes and returns the next value in the stream. This will return an
-    /// error if the stream is closed, or if there was an error while
-    /// deserializing data received.
+    /// Consumes and returns the next value in the stream.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the stream is closed, or if there was an
+    /// error while deserializing data received.
     pub async fn next(&mut self) -> io::Result<ServerEvent<R>> {
         match self.event_receiver.recv().await {
             Some(serialized_event) => serialized_event.deserialize(),
@@ -845,12 +961,9 @@ where
 
     /// Identical to `next`, but doesn't deserialize the event. It does,
     /// however, validate that the event can be deserialized without error.
-    async fn next_raw(&mut self) -> io::Result<ServerEventRaw> {
+    async fn next_raw(&mut self) -> io::Result<ServerEventRawSafe<R>> {
         match self.event_receiver.recv().await {
-            Some(serialized_event) => {
-                serialized_event.deserialize::<R>()?;
-                Ok(serialized_event)
-            }
+            Some(serialized_event) => serialized_event.try_into(),
             None => generic_io_error("event stream is closed"),
         }
     }
@@ -873,9 +986,11 @@ impl<S> ServerHandle<S>
 where
     S: Serialize + 'static,
 {
-    /// Stop the server, disconnect all clients, and shut down all network interfaces.
+    /// Stop the server, disconnect all clients, and shut down all network
+    /// interfaces.
     ///
-    /// Returns a result of the error variant if an error occurred while disconnecting clients.
+    /// Returns a result of the error variant if an error occurred while
+    /// disconnecting clients.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -910,21 +1025,30 @@ where
     ///     assert!(matches!(server_events.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has already closed, or if
+    /// the underlying server loop returned an error.
+    #[allow(clippy::missing_panics_doc)]
     pub async fn stop(mut self) -> io::Result<()> {
         let value = self
             .server_command_sender
             .send_command(ServerCommand::Stop)
             .await?;
+        // `unwrap` is allowed, as an error is returned only when the underlying
+        // task panics, which it never should
         self.server_task_handle.await.unwrap()?;
         unwrap_enum!(value, ServerCommandReturn::Stop)
     }
 
     /// Send data to a client.
     ///
-    /// `client_id`: the ID of the client to send the data to.
-    /// `data`: the data to send.
+    /// - `client_id`: the ID of the client to send the data to.
+    /// - `data`: the data to send.
     ///
-    /// Returns a result of the error variant if an error occurred while sending.
+    /// Returns a result of the error variant if an error occurred while
+    /// sending.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -952,6 +1076,11 @@ where
     ///     }
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has closed, or if data
+    /// serialization fails.
     pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
         let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
@@ -966,9 +1095,10 @@ where
 
     /// Send data to all clients.
     ///
-    /// `data`: the data to send.
+    /// - `data`: the data to send.
     ///
-    /// Returns a result of the error variant if an error occurred while sending.
+    /// Returns a result of the error variant if an error occurred while
+    /// sending.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -996,6 +1126,11 @@ where
     ///     }
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has closed, or if data
+    /// serialization fails.
     pub async fn send_all(&mut self, data: S) -> io::Result<()> {
         let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
         let value = self
@@ -1009,7 +1144,8 @@ where
 
     /// Get the address the server is listening on.
     ///
-    /// Returns a result containing the address the server is listening on, or the error variant if an error occurred.
+    /// Returns a result containing the address the server is listening on, or
+    /// the error variant if an error occurred.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -1030,6 +1166,10 @@ where
     ///     println!("Server listening on {}", addr);
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has closed.
     pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
         let value = self
             .server_command_sender
@@ -1040,9 +1180,10 @@ where
 
     /// Get the address of a connected client.
     ///
-    /// `client_id`: the ID of the client.
+    /// - `client_id`: the ID of the client.
     ///
-    /// Returns a result containing the address of the client, or the error variant if the client ID is invalid.
+    /// Returns a result containing the address of the client, or the error
+    /// variant if the client ID is invalid.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -1070,6 +1211,12 @@ where
     ///         }
     ///     }
     /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has closed, or if the
+    /// client ID is invalid.
     pub async fn get_client_addr(&mut self, client_id: usize) -> io::Result<SocketAddr> {
         let value = self
             .server_command_sender
@@ -1080,9 +1227,10 @@ where
 
     /// Disconnect a client from the server.
     ///
-    /// `client_id`: the ID of the client.
+    /// - `client_id`: the ID of the client.
     ///
-    /// Returns a result of the error variant if an error occurred while disconnecting the client, or if the client ID is invalid.
+    /// Returns a result of the error variant if an error occurred while
+    /// disconnecting the client, or if the client ID is invalid.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -1117,6 +1265,11 @@ where
     ///     assert!(matches!(server_events.next().await.unwrap(), ServerEvent::Stop));
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if the server socket has closed, or if the
+    /// client ID is invalid.
     pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
         let value = self
             .server_command_sender
@@ -1133,7 +1286,8 @@ where
 /// - `S`: the type of data that will be **sent** to clients.
 /// - `R`: the type of data that will be **received** from clients.
 ///
-/// Both types must be serializable in order to be sent through the socket. When creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
+/// Both types must be serializable in order to be sent through the socket. When
+/// creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
 ///
 /// ```no_run
 /// use rustdtp::*;
@@ -1183,7 +1337,7 @@ impl Server<(), ()> {
     /// Constructs a server builder. Use this for a clearer, more explicit,
     /// and more featureful server configuration. See [`ServerBuilder`] for
     /// more information.
-    pub fn builder(
+    pub const fn builder(
     ) -> ServerBuilder<ServerSendingUnknown, ServerReceivingUnknown, ServerEventReportingUnknown>
     {
         ServerBuilder::new()
@@ -1197,9 +1351,11 @@ where
 {
     /// Start a socket server.
     ///
-    /// `addr`: the address for the server to listen on.
+    /// - `addr`: the address for the server to listen on.
     ///
-    /// Returns a result containing a handle to the server and a channel from which to receive server events, or the error variant if an error occurred while starting the server.
+    /// Returns a result containing a handle to the server and a channel from
+    /// which to receive server events, or the error variant if an error
+    /// occurred while starting the server.
     ///
     /// ```no_run
     /// use rustdtp::*;
@@ -1216,7 +1372,14 @@ where
     /// }
     /// ```
     ///
-    /// Neither the server handle nor the event receiver should be dropped until the server has been stopped. Prematurely dropping either one can cause unintended behavior.
+    /// Neither the server handle nor the event receiver should be dropped until
+    /// the server has been stopped. Prematurely dropping either one can cause
+    /// unintended behavior.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if a TCP listener cannot be bound to the
+    /// provided address.
     pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
@@ -1253,6 +1416,7 @@ where
 }
 
 /// The server client loop. Handles received data and commands.
+#[allow(clippy::too_many_lines)]
 async fn server_client_loop(
     client_id: usize,
     mut socket: TcpStream,
@@ -1290,7 +1454,7 @@ async fn server_client_loop(
     let mut aes_key_size_buffer = [0; LEN_SIZE];
     // Read the AES key from the client
     let n_size = handshake_timeout! {
-        socket.read(&mut aes_key_size_buffer)
+        socket.read(&mut aes_key_size_buffer[..])
     }??;
 
     // If there were no bytes read, or if there were fewer bytes read than there
@@ -1305,10 +1469,10 @@ async fn server_client_loop(
     // Initialize the buffer for the AES key
     let mut aes_key_buffer = vec![0; aes_key_size];
 
-    // Read the AES key portion from the client socket, returning an error if the
-    // socket could not be read
+    // Read the AES key portion from the client socket, returning an error if
+    // the socket could not be read
     let n_aes_key = data_read_timeout! {
-        socket.read(&mut aes_key_buffer)
+        socket.read(&mut aes_key_buffer[..])
     }??;
 
     // If there were no bytes read, or if there were fewer bytes read than there
@@ -1337,12 +1501,12 @@ async fn server_client_loop(
         // and commands from the background server task
         tokio::select! {
             // Read the size portion from the client socket
-            read_value = socket.read(&mut size_buffer) => {
+            read_value = socket.read(&mut size_buffer[..]) => {
                 // Return an error if the socket could not be read
                 let n_size = read_value?;
 
-                // If there were no bytes read, or if there were fewer bytes read than there
-                // should have been, close the socket
+                // If there were no bytes read, or if there were fewer bytes
+                // read than there should have been, close the socket
                 if n_size != LEN_SIZE {
                     socket.shutdown().await?;
                     break;
@@ -1353,14 +1517,14 @@ async fn server_client_loop(
                 // Initialize the buffer for the data portion of the message
                 let mut encrypted_data_buffer = vec![0; encrypted_data_size];
 
-                // Read the data portion from the client socket, returning an error if the
-                // socket could not be read
+                // Read the data portion from the client socket, returning an
+                // error if the socket could not be read
                 let n_data = data_read_timeout! {
-                    socket.read(&mut encrypted_data_buffer)
+                    socket.read_exact(&mut encrypted_data_buffer[..])
                 }??;
 
-                // If there were no bytes read, or if there were fewer bytes read than there
-                // should have been, close the socket
+                // If there were no bytes read, or if there were fewer bytes
+                // read than there should have been, close the socket
                 if n_data != encrypted_data_size {
                     socket.shutdown().await?;
                     break;
@@ -1369,7 +1533,7 @@ async fn server_client_loop(
                 // Decrypt the data
                 let data_serialized = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
                     Ok(val) => Ok(val),
-                    Err(e) => generic_io_error(format!("failed to decrypt data: {}", e)),
+                    Err(e) => generic_io_error(format!("failed to decrypt data: {e}")),
                 }?;
 
                 // Send an event to note that a piece of data has been received from
@@ -1396,9 +1560,11 @@ async fn server_client_loop(
 
                                     // Initialize the message buffer
                                     let mut buffer = vec![];
-                                    // Extend the buffer to contain the payload size
+                                    // Extend the buffer to contain the payload
+                                    // size
                                     buffer.extend_from_slice(&size_buffer);
-                                    // Extend the buffer to contain the payload data
+                                    // Extend the buffer to contain the payload
+                                    // data
                                     buffer.extend(&encrypted_data_buffer);
 
                                     // Write the data to the client socket
@@ -1406,9 +1572,9 @@ async fn server_client_loop(
                                     // Flush the stream
                                     break_on_err!(socket.flush().await, 'val);
 
-                                    // If there were no bytes written, or if there were fewer
-                                    // bytes written than there should have been, close the
-                                    // socket
+                                    // If there were no bytes written, or if
+                                    // there were fewer bytes written than there
+                                    // should have been, close the socket
                                     if n != buffer.len() {
                                         generic_io_error("failed to write data to socket")
                                     } else {
@@ -1446,9 +1612,10 @@ async fn server_client_loop(
                                 // Disconnect the client
                                 let value = socket.shutdown().await;
 
-                                // Return the status of the remove operation, ignoring
-                                // failures, since a failure indicates that the client has
-                                // probably already disconnected
+                                // Return the status of the remove operation,
+                                // ignoring failures, since a failure indicates
+                                // that the client has probably already
+                                // disconnected
                                 _ = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value)).await;
 
                                 // Break the client loop
@@ -1470,19 +1637,20 @@ async fn server_client_loop(
 }
 
 /// Starts a server client loop in the background.
-async fn server_client_handler(
+fn server_client_handler(
     client_id: usize,
     socket: TcpStream,
     server_client_event_sender: Sender<ServerEventRaw>,
     client_cleanup_sender: Sender<usize>,
-) -> io::Result<(
+) -> (
     CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     JoinHandle<io::Result<()>>,
-)> {
+) {
     // Channels for sending commands from the background server task to a background client task
     let (client_command_sender, client_command_receiver) = command_channel();
 
-    // Start a background client task, saving the join handle for when the server is stopped
+    // Start a background client task, saving the join handle for when the
+    // server is stopped
     let client_task_handle = tokio::spawn(async move {
         let res = server_client_loop(
             client_id,
@@ -1492,17 +1660,18 @@ async fn server_client_handler(
         )
         .await;
 
-        // Tell the server to clean up after the client, ignoring failures, since a failure
-        // indicates that the server has probably closed
+        // Tell the server to clean up after the client, ignoring failures,
+        // since a failure indicates that the server has probably closed
         _ = client_cleanup_sender.send(client_id).await;
 
         res
     });
 
-    Ok((client_command_sender, client_task_handle))
+    (client_command_sender, client_task_handle)
 }
 
 /// The server loop. Handles incoming connections and commands.
+#[allow(clippy::too_many_lines)]
 async fn server_loop(
     listener: TcpListener,
     server_event_sender: Sender<ServerEventRaw>,
@@ -1533,36 +1702,28 @@ async fn server_loop(
                 let client_id = next_client_id;
                 // Increment next client ID
                 next_client_id += 1;
-                // Clone the event sender so the background client tasks can send events
+                // Clone the event sender so the background client tasks can
+                // send events
                 let server_client_event_sender = server_event_sender.clone();
-                // Clone the client cleanup sender to the background client tasks can be cleaned up properly
+                // Clone the client cleanup sender to the background client
+                // tasks can be cleaned up properly
                 let client_cleanup_sender = server_client_cleanup_sender.clone();
 
                 // Handle the new connection
-                match server_client_handler(client_id, socket, server_client_event_sender, client_cleanup_sender).await {
-                    Ok((client_command_sender, client_task_handle)) => {
-                        // Keep track of client command senders
-                        client_command_senders.insert(client_id, client_command_sender);
-                        // Keep track of client task handles
-                        client_join_handles.insert(client_id, client_task_handle);
+                let (client_command_sender, client_task_handle) = server_client_handler(client_id, socket, server_client_event_sender, client_cleanup_sender);
+                // Keep track of client command senders
+                client_command_senders.insert(client_id, client_command_sender);
+                // Keep track of client task handles
+                client_join_handles.insert(client_id, client_task_handle);
 
-                        // Send an event to note that a client has connected successfully
-                        if let Err(_e) = server_event_sender
-                            .send(ServerEventRaw::Connect { client_id })
-                            .await
-                        {
-                            // Server is probably closed
-                            break;
-                        }
-                    },
-                    Err(e) => {
-                        if cfg!(test) {
-                            // If testing, fail
-                            Err(e)?
-                        } else {
-                            // If not testing, ignore client handshake errors
-                        }
-                    }
+                // Send an event to note that a client has connected
+                // successfully
+                if let Err(_e) = server_event_sender
+                    .send(ServerEventRaw::Connect { client_id })
+                    .await
+                {
+                    // Server is probably closed
+                    break;
                 }
             },
             // Process a command from the server handle
@@ -1572,27 +1733,33 @@ async fn server_loop(
                     Ok(command) => {
                         match command {
                             ServerCommand::Stop => {
-                                // If a command fails to send, the server has already closed,
-                                // and the error can be ignored.
-                                // It should be noted that this is not where the stop method actually returns
-                                // its `Result`. This immediately returns with an `Ok` status. The real return
-                                // value is the `Result` returned from the server task join handle.
+                                // If a command fails to send, the server has
+                                // already closed, and the error can be ignored.
+                                // It should be noted that this is not where the
+                                // stop method actually returns its `Result`.
+                                // This immediately returns with an `Ok` status.
+                                // The real return value is the `Result`
+                                // returned from the server task join handle.
                                 _ = server_command_receiver.command_return(ServerCommandReturn::Stop(Ok(()))).await;
 
-                                // Break the server loop, the clients will be disconnected before the task ends
+                                // Break the server loop, the clients will be
+                                // disconnected before the task ends
                                 break;
                             },
                             ServerCommand::Send { client_id, data } => {
                                 let value = match client_command_senders.get_mut(&client_id) {
                                     Some(client_command_sender) => {
-                                        // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                        // Turn `Vec<u8>` into `Arc<[u8]>`,
+                                        // making it more easily shareable
                                         let shareable_data = Arc::<[u8]>::from(data);
 
                                         match client_command_sender.send_command(ServerClientCommand::Send { data: shareable_data }).await {
                                             Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
                                             Err(_e) => {
-                                                // The channel is closed, and the client has probably been
-                                                // disconnected, so the error can be ignored
+                                                // The channel is closed, and
+                                                // the client has probably been
+                                                // disconnected, so the error
+                                                // can be ignored
                                                 Ok(())
                                             },
                                         }
@@ -1606,15 +1773,18 @@ async fn server_loop(
                             },
                             ServerCommand::SendAll { data } => {
                                 let value = {
-                                    // Turn `Vec<u8>` into `Arc<[u8]>`, making it more easily shareable
+                                    // Turn `Vec<u8>` into `Arc<[u8]>`, making
+                                    // it more easily shareable
                                     let shareable_data = Arc::<[u8]>::from(data);
 
                                     let send_futures = client_command_senders.iter_mut().map(|(_client_id, client_command_sender)| async {
                                         match client_command_sender.send_command(ServerClientCommand::Send { data: Arc::clone(&shareable_data) }).await {
                                             Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Send),
                                             Err(_e) => {
-                                                // The channel is closed, and the client has probably been
-                                                // disconnected, so the error can be ignored
+                                                // The channel is closed, and
+                                                // the client has probably been
+                                                // disconnected, so the error
+                                                // can be ignored
                                                 Ok(())
                                             }
                                         }
@@ -1624,16 +1794,18 @@ async fn server_loop(
                                     resolved.into_iter().collect::<io::Result<Vec<_>>>().map(|_| ())
                                 };
 
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
+                                // If a command fails to send, the client has
+                                // probably disconnected, and the error can be
+                                // ignored
                                 _ = server_command_receiver.command_return(ServerCommandReturn::SendAll(value)).await;
                             },
                             ServerCommand::GetAddr => {
                                 // Get the server listener's address
                                 let addr = listener.local_addr();
 
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
+                                // If a command fails to send, the client has
+                                // probably disconnected, and the error can be
+                                // ignored
                                 _ = server_command_receiver.command_return(ServerCommandReturn::GetAddr(addr)).await;
                             },
                             ServerCommand::GetClientAddr { client_id } => {
@@ -1641,17 +1813,20 @@ async fn server_loop(
                                     Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::GetAddr).await {
                                         Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::GetAddr),
                                         Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be treated as an invalid
-                                            // client error
+                                            // The channel is closed, and the
+                                            // client has probably been
+                                            // disconnected, so the error can be
+                                            // treated as an invalid client
+                                            // error
                                             generic_io_error("invalid client")
                                         },
                                     },
                                     None => generic_io_error("invalid client"),
                                 };
 
-                                // If a command fails to send, the client has probably disconnected,
-                                // and the error can be ignored
+                                // If a command fails to send, the client has
+                                // probably disconnected, and the error can be
+                                // ignored
                                 _ = server_command_receiver.command_return(ServerCommandReturn::GetClientAddr(value)).await;
                             },
                             ServerCommand::RemoveClient { client_id } => {
@@ -1659,16 +1834,19 @@ async fn server_loop(
                                     Some(client_command_sender) => match client_command_sender.send_command(ServerClientCommand::Remove).await {
                                         Ok(return_value) => unwrap_enum!(return_value, ServerClientCommandReturn::Remove),
                                         Err(_e) => {
-                                            // The channel is closed, and the client has probably been
-                                            // disconnected, so the error can be ignored
+                                            // The channel is closed, and the
+                                            // client has probably been
+                                            // disconnected, so the error can be
+                                            // ignored
                                             Ok(())
                                         },
                                     },
                                     None => generic_io_error("invalid client"),
                                 };
 
-                                // If a command fails to send, the client has probably disconnected already,
-                                // and the error can be ignored
+                                // If a command fails to send, the client has
+                                // probably disconnected already, and the error
+                                // can be ignored
                                 _ = server_command_receiver.command_return(ServerCommandReturn::RemoveClient(value)).await;
                             },
                         }
@@ -1683,7 +1861,8 @@ async fn server_loop(
             disconnecting_client_id = server_client_cleanup_receiver.recv() => {
                 match disconnecting_client_id {
                     Some(client_id) => {
-                        // Remove the client's command sender, which will be dropped after this block ends
+                        // Remove the client's command sender, which will be
+                        // dropped after this block ends
                         client_command_senders.remove(&client_id);
 
                         // Remove the client's join handle
@@ -1692,9 +1871,10 @@ async fn server_loop(
                             if let Err(e) = handle.await.unwrap() {
                                 if cfg!(test) {
                                     // If testing, fail
-                                    Err(e)?
+                                    Err(e)?;
                                 } else {
-                                    // If not testing, ignore client handler errors
+                                    // If not testing, ignore client handler
+                                    // errors
                                 }
                             }
                         }
@@ -1723,7 +1903,8 @@ async fn server_handler(
     server_event_sender: Sender<ServerEventRaw>,
     server_command_receiver: CommandChannelReceiver<ServerCommand, ServerCommandReturn>,
 ) -> io::Result<()> {
-    // Collection of channels for sending commands from the background server task to a background client task
+    // Collection of channels for sending commands from the background server
+    // task to a background client task
     let mut client_command_senders: HashMap<
         usize,
         CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
@@ -1744,8 +1925,8 @@ async fn server_handler(
     // Send a remove command to all clients
     futures::future::join_all(client_command_senders.into_values().map(
         |mut client_command_sender| async move {
-            // If a command fails to send, the client has probably disconnected already,
-            // and the error can be ignored
+            // If a command fails to send, the client has probably disconnected
+            // already, and the error can be ignored
             _ = client_command_sender
                 .send_command(ServerClientCommand::Remove)
                 .await;
@@ -1758,7 +1939,7 @@ async fn server_handler(
         if let Err(e) = handle.await.unwrap() {
             if cfg!(test) {
                 // If testing, fail
-                Err(e)?
+                Err(e)?;
             } else {
                 // If not testing, ignore client handler errors
             }

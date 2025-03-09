@@ -70,7 +70,8 @@ pub type Result<T, E = String> = core::result::Result<T, CryptoError<E>>;
 
 /// Generate a pair of RSA keys.
 ///
-/// Returns a result containing the public and private keys, or the error variant if an error occurred while generating the keys.
+/// Returns a result containing the public and private keys, or the error
+/// variant if an error occurred while generating the keys.
 pub async fn rsa_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::thread_rng();
@@ -85,10 +86,11 @@ pub async fn rsa_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
 
 /// Encrypt some data with RSA.
 ///
-/// `public_key`: the RSA public key.
-/// `plaintext`: the data to encrypt.
+/// - `public_key`: the RSA public key.
+/// - `plaintext`: the data to encrypt.
 ///
-/// Returns a result containing the encrypted data, or the error variant if an error occurred while encrypting.
+/// Returns a result containing the encrypted data, or the error variant if an
+/// error occurred while encrypting.
 pub async fn rsa_encrypt(public_key: RsaPublicKey, plaintext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let mut rng = rand::thread_rng();
@@ -103,10 +105,11 @@ pub async fn rsa_encrypt(public_key: RsaPublicKey, plaintext: Arc<[u8]>) -> Resu
 
 /// Decrypt some data with RSA.
 ///
-/// `private_key`: the RSA private key.
-/// `ciphertext`: the data to decrypt.
+/// - `private_key`: the RSA private key.
+/// - `ciphertext`: the data to decrypt.
 ///
-/// Returns a result containing the decrypted data, or the error variant if an error occurred while decrypting.
+/// Returns a result containing the decrypted data, or the error variant if an
+/// error occurred while decrypting.
 pub async fn rsa_decrypt(private_key: RsaPrivateKey, ciphertext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let padding = Oaep::new::<Sha256>();
@@ -132,10 +135,11 @@ pub async fn aes_key() -> [u8; AES_KEY_SIZE] {
 
 /// Encrypt some data with AES.
 ///
-/// `key`: the AES key.
-/// `plaintext`: the data to encrypt.
+/// - `key`: the AES key.
+/// - `plaintext`: the data to encrypt.
 ///
-/// Returns a result containing the encrypted data with the nonce prepended, or the error variant if an error occurred while encrypting.
+/// Returns a result containing the encrypted data with the nonce prepended, or
+/// the error variant if an error occurred while encrypting.
 pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Arc<[u8]>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
@@ -153,10 +157,12 @@ pub async fn aes_encrypt(key: [u8; AES_KEY_SIZE], plaintext: Arc<[u8]>) -> Resul
 
 /// Decrypt some data with AES.
 ///
-/// `key`: the AES key.
-/// `ciphertext_with_nonce`: the data to decrypt, containing the prepended nonce.
+/// - `key`: the AES key.
+/// - `ciphertext_with_nonce`: the data to decrypt, containing the prepended
+///   nonce.
 ///
-/// Returns a result containing the decrypted data, or the error variant if an error occurred while decrypting.
+/// Returns a result containing the decrypted data, or the error variant if an
+/// error occurred while decrypting.
 pub async fn aes_decrypt(
     key: [u8; AES_KEY_SIZE],
     ciphertext_with_nonce: Arc<[u8]>,

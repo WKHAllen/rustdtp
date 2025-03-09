@@ -18,7 +18,7 @@ pub const HANDSHAKE_TIMEOUT: u64 = 60000;
 
 /// Generate a generic IO error.
 ///
-/// `err`: the underlying error.
+/// - `err`: the underlying error.
 ///
 /// Returns a generic IO representation of the error.
 pub fn generic_io_error<T, E>(err: E) -> io::Result<T>
@@ -30,7 +30,7 @@ where
 
 /// Convert a result into a generic IO result.
 ///
-/// `value`: the result to convert.
+/// - `value`: the result to convert.
 ///
 /// Returns the result converted into a generic IO result.
 pub fn into_generic_io_result<T, E>(value: Result<T, E>) -> io::Result<T>
@@ -45,7 +45,7 @@ where
 
 /// Encode the size portion of a message.
 ///
-/// `size`: the message size.
+/// - `size`: the message size.
 ///
 /// Returns the message size encoded in bytes.
 pub fn encode_message_size(size: usize) -> [u8; LEN_SIZE] {
@@ -59,16 +59,18 @@ pub fn encode_message_size(size: usize) -> [u8; LEN_SIZE] {
 
 /// Decode the size portion of a message.
 ///
-/// `encoded_size`: the message size encoded in bytes.
+/// - `encoded_size`: the message size encoded in bytes.
 ///
 /// Returns the size of the message.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn decode_message_size(encoded_size: &[u8; LEN_SIZE]) -> usize {
     encoded_size
         .iter()
         .fold(0, |acc, x| (acc << 8) + usize::from(*x))
 }
 
-/// Assert that an enum is of the given variant, and unwrap the value within the variant.
+/// Assert that an enum is of the given variant, and unwrap the value within the
+/// variant.
 macro_rules! unwrap_enum {
     ($enum:expr, $variant:path) => {{
         if let $variant(x) = $enum {
@@ -82,7 +84,8 @@ macro_rules! unwrap_enum {
     }};
 }
 
-/// Break from a block if a `Result` is an `Err`. Essentially the equivalent of the `?` operator but for blocks instead of functions.
+/// Break from a block if a `Result` is an `Err`. Essentially the equivalent of
+/// the `?` operator but for blocks instead of functions.
 macro_rules! break_on_err {
     ($x:expr) => {
         match $x {

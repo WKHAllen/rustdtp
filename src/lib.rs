@@ -4,7 +4,9 @@
 //!
 //! ## Data Transfer Protocol
 //!
-//! The Data Transfer Protocol (DTP) is a larger project to make ergonomic network programming available in any language. See the full project [here](https://wkhallen.com/dtp/).
+//! The Data Transfer Protocol (DTP) is a larger project to make ergonomic
+//! network programming available in any language. See the full project
+//! [here](https://wkhallen.com/dtp/).
 //!
 //! ## Installation
 //!
@@ -16,7 +18,7 @@
 //!
 //! ## Creating a server
 //!
-//! A server can be built using the `Server` implementation:
+//! A server can be built using the [`Server`] implementation:
 //!
 //! ```no_run
 //! use rustdtp::*;
@@ -56,7 +58,7 @@
 //!
 //! ## Creating a client
 //!
-//! A client can be built using the `Client` implementation:
+//! A client can be built using the [`Client`] implementation:
 //!
 //! ```no_run
 //! use rustdtp::*;
@@ -93,25 +95,25 @@
 //!
 //! ## Security
 //!
-//! Information security comes included. Every message sent over a network interface is encrypted with AES-256. Key exchanges are performed using a 2048-bit RSA key-pair.
+//! Information security comes included. Every message sent over a network
+//! interface is encrypted with AES-256. Key exchanges are performed using a
+//! 2048-bit RSA key-pair.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+#![deny(missing_docs)]
+#![warn(unused_mut)]
 #![warn(clippy::missing_docs_in_private_items)]
-// #![forbid(unsafe_code)]
-// #![deny(missing_docs)]
-// #![warn(unused_mut)]
-// #![warn(clippy::missing_docs_in_private_items)]
-// #![deny(clippy::all)]
-// #![warn(clippy::pedantic)]
-// #![warn(clippy::nursery)]
-// #![warn(clippy::cargo)]
-// #![allow(clippy::wildcard_imports)]
-// #![allow(clippy::if_not_else)]
-// #![allow(clippy::ignored_unit_patterns)]
-// #![allow(clippy::needless_borrows_for_generic_args)]
-// #![allow(clippy::module_name_repetitions)]
-// #![allow(clippy::multiple_crate_versions)]
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
+#![warn(clippy::cargo)]
+#![allow(clippy::wildcard_imports)]
+#![allow(clippy::if_not_else)]
+#![allow(clippy::ignored_unit_patterns)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::option_if_let_else)]
 
 mod client;
 mod command_channel;
@@ -166,11 +168,11 @@ mod tests {
     /// Statically assert that a type implements a trait or lifetime.
     macro_rules! assert_impl {
         ($name:ty, $trait_name:path) => {{
-            fn __test_impl__<T: $trait_name>() {}
+            const fn __test_impl__<T: $trait_name>() {}
             __test_impl__::<$name>()
         }};
         ($name:ty, $lifetime_name:lifetime) => {{
-            fn __test_impl__<T: $lifetime_name>() {}
+            const fn __test_impl__<T: $lifetime_name>() {}
             __test_impl__::<$name>()
         }};
     }
@@ -183,11 +185,11 @@ mod tests {
         assert_eq!(encode_message_size(255), [0, 0, 0, 0, 255]);
         assert_eq!(encode_message_size(256), [0, 0, 0, 1, 0]);
         assert_eq!(encode_message_size(257), [0, 0, 0, 1, 1]);
-        assert_eq!(encode_message_size(4311810305), [1, 1, 1, 1, 1]);
-        assert_eq!(encode_message_size(4328719365), [1, 2, 3, 4, 5]);
-        assert_eq!(encode_message_size(47362409218), [11, 7, 5, 3, 2]);
+        assert_eq!(encode_message_size(4_311_810_305), [1, 1, 1, 1, 1]);
+        assert_eq!(encode_message_size(4_328_719_365), [1, 2, 3, 4, 5]);
+        assert_eq!(encode_message_size(47_362_409_218), [11, 7, 5, 3, 2]);
         assert_eq!(
-            encode_message_size(1099511627775),
+            encode_message_size(1_099_511_627_775),
             [255, 255, 255, 255, 255]
         );
     }
@@ -200,12 +202,12 @@ mod tests {
         assert_eq!(decode_message_size(&[0, 0, 0, 0, 255]), 255);
         assert_eq!(decode_message_size(&[0, 0, 0, 1, 0]), 256);
         assert_eq!(decode_message_size(&[0, 0, 0, 1, 1]), 257);
-        assert_eq!(decode_message_size(&[1, 1, 1, 1, 1]), 4311810305);
-        assert_eq!(decode_message_size(&[1, 2, 3, 4, 5]), 4328719365);
-        assert_eq!(decode_message_size(&[11, 7, 5, 3, 2]), 47362409218);
+        assert_eq!(decode_message_size(&[1, 1, 1, 1, 1]), 4_311_810_305);
+        assert_eq!(decode_message_size(&[1, 2, 3, 4, 5]), 4_328_719_365);
+        assert_eq!(decode_message_size(&[11, 7, 5, 3, 2]), 47_362_409_218);
         assert_eq!(
             decode_message_size(&[255, 255, 255, 255, 255]),
-            1099511627775
+            1_099_511_627_775
         );
     }
 
@@ -274,14 +276,14 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -331,7 +333,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) =
@@ -339,7 +341,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -354,11 +356,12 @@ mod tests {
         sleep!();
 
         let client_recv_event_1 = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -373,16 +376,17 @@ mod tests {
                 assert_eq!(data, msg_from_client);
                 server.send(client_id, data.len()).await.unwrap();
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
         let client_recv_event_2 = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_recv_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client.len());
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -417,7 +421,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::<Vec<u8>, Vec<u8>>::connect(server_addr)
@@ -426,7 +430,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -443,14 +447,8 @@ mod tests {
         let large_msg_from_client_len = rng.gen_range(16384..32768);
         let mut large_msg_from_client = vec![0u8; large_msg_from_client_len];
         rng.fill_bytes(&mut large_msg_from_client[..]);
-        println!(
-            "Generated large message from server ({} bytes)",
-            large_msg_from_server_len
-        );
-        println!(
-            "Generated large message from client ({} bytes)",
-            large_msg_from_client_len
-        );
+        println!("Generated large message from server ({large_msg_from_server_len} bytes)");
+        println!("Generated large message from client ({large_msg_from_client_len} bytes)");
 
         server
             .send_all(large_msg_from_server.clone())
@@ -459,11 +457,12 @@ mod tests {
         sleep!();
 
         let client_large_msg_event = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_large_msg_event {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, large_msg_from_server);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -476,7 +475,7 @@ mod tests {
                 assert_eq!(client_id, 0);
                 assert_eq!(data, large_msg_from_client);
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
@@ -509,7 +508,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) =
@@ -517,7 +516,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -534,8 +533,8 @@ mod tests {
         let client_messages_len = rng.gen_range(128..256);
         let mut client_messages = vec![0u16; client_messages_len];
         rng.fill(&mut client_messages[..]);
-        println!("Generated {} server messages", server_messages_len);
-        println!("Generated {} client messages", client_messages_len);
+        println!("Generated {server_messages_len} server messages");
+        println!("Generated {client_messages_len} client messages");
 
         for &server_message in &server_messages {
             client.send(server_message).await.unwrap();
@@ -552,17 +551,18 @@ mod tests {
                     assert_eq!(client_id, 0);
                     assert_eq!(data, server_message);
                 }
-                event => panic!("expected receive event on server, instead got {:?}", event),
+                event => panic!("expected receive event on server, instead got {event:?}"),
             }
         }
 
         for &client_message in &client_messages {
             let client_recv_event = client_events.next().await.unwrap();
+            #[allow(clippy::match_wildcard_for_single_variants)]
             match client_recv_event {
                 ClientEvent::Receive { data } => {
                     assert_eq!(data, client_message);
                 }
-                event => panic!("expected receive event on client, instead got {:?}", event),
+                event => panic!("expected receive event on client, instead got {event:?}"),
             }
         }
 
@@ -596,7 +596,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::<Custom, Custom>::connect(server_addr)
@@ -605,7 +605,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -637,11 +637,12 @@ mod tests {
         sleep!();
 
         let client_recv_event_1 = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, client_message);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -654,7 +655,7 @@ mod tests {
                 assert_eq!(client_id, 0);
                 assert_eq!(data, server_message);
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
@@ -681,6 +682,7 @@ mod tests {
     }
 
     /// Test having multiple clients connected, and process events from them individually.
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn test_multiple_clients() {
         let (mut server, mut server_events) =
@@ -688,7 +690,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client_1, mut client_event_1) =
@@ -696,7 +698,7 @@ mod tests {
         sleep!();
 
         let client_addr_1 = client_1.get_addr().await.unwrap();
-        println!("Client 1 address: {}", client_addr_1);
+        println!("Client 1 address: {client_addr_1}");
         sleep!();
 
         let client_connect_event_1 = server_events.next().await.unwrap();
@@ -721,7 +723,7 @@ mod tests {
         sleep!();
 
         let client_addr_2 = client_2.get_addr().await.unwrap();
-        println!("Client 2 address: {}", client_addr_2);
+        println!("Client 2 address: {client_addr_2}");
         sleep!();
 
         let client_connect_event_2 = server_events.next().await.unwrap();
@@ -752,16 +754,17 @@ mod tests {
                 assert_eq!(data, msg_from_client_1);
                 server.send(client_id, data.len()).await.unwrap();
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
         let server_reply_event_1 = client_event_1.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match server_reply_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client_1.len());
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -776,16 +779,17 @@ mod tests {
                 assert_eq!(data, msg_from_client_2);
                 server.send(client_id, data.len()).await.unwrap();
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
         let server_reply_event_2 = client_event_2.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match server_reply_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client_2.len());
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -794,20 +798,22 @@ mod tests {
         sleep!();
 
         let server_msg_1 = client_event_1.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match server_msg_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
         let server_msg_2 = client_event_2.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match server_msg_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -853,14 +859,14 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -901,14 +907,14 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::<(), ()>::connect(server_addr).await.unwrap();
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -954,6 +960,7 @@ mod tests {
     }
 
     /// Test builder with callback configuration.
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn test_builder_with_callbacks() {
         let (server_connect_sender, mut server_connect_receiver) = channel(DEFAULT_CHANNEL_SIZE);
@@ -1001,7 +1008,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let mut client = Client::builder()
@@ -1028,7 +1035,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_connect_receiver.recv().await.unwrap();
@@ -1081,8 +1088,10 @@ mod tests {
     }
 
     /// Test builder with handler configuration.
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn test_builder_with_handler_config() {
+        #[allow(clippy::struct_field_names)]
         struct ServerHandler {
             connect_sender: Sender<usize>,
             disconnect_sender: Sender<usize>,
@@ -1091,7 +1100,7 @@ mod tests {
         }
 
         impl ServerHandler {
-            pub fn new(
+            pub const fn new(
                 connect_sender: Sender<usize>,
                 disconnect_sender: Sender<usize>,
                 receive_sender: Sender<(usize, String)>,
@@ -1130,7 +1139,7 @@ mod tests {
         }
 
         impl ClientHandler {
-            pub fn new(receive_sender: Sender<usize>, disconnect_sender: Sender<()>) -> Self {
+            pub const fn new(receive_sender: Sender<usize>, disconnect_sender: Sender<()>) -> Self {
                 Self {
                     receive_sender,
                     disconnect_sender,
@@ -1175,7 +1184,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let mut client = Client::builder()
@@ -1188,7 +1197,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_connect_receiver.recv().await.unwrap();
@@ -1253,7 +1262,7 @@ mod tests {
         sleep!();
 
         let server_addr = server.get_addr().await.unwrap();
-        println!("Server address: {}", server_addr);
+        println!("Server address: {server_addr}");
         sleep!();
 
         let (mut client, mut client_events) = Client::builder()
@@ -1266,7 +1275,7 @@ mod tests {
         sleep!();
 
         let client_addr = client.get_addr().await.unwrap();
-        println!("Client address: {}", client_addr);
+        println!("Client address: {client_addr}");
         sleep!();
 
         let client_connect_event = server_events.next().await.unwrap();
@@ -1281,11 +1290,12 @@ mod tests {
         sleep!();
 
         let client_recv_event_1 = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_recv_event_1 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_server);
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
@@ -1300,16 +1310,17 @@ mod tests {
                 assert_eq!(data, msg_from_client);
                 server.send(client_id, data.len()).await.unwrap();
             }
-            event => panic!("expected receive event on server, instead got {:?}", event),
+            event => panic!("expected receive event on server, instead got {event:?}"),
         }
         sleep!();
 
         let client_recv_event_2 = client_events.next().await.unwrap();
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match client_recv_event_2 {
             ClientEvent::Receive { data } => {
                 assert_eq!(data, msg_from_client.len());
             }
-            event => panic!("expected receive event on client, instead got {:?}", event),
+            event => panic!("expected receive event on client, instead got {event:?}"),
         }
         sleep!();
 
