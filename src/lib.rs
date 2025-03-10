@@ -21,7 +21,7 @@
 //! A server can be built using the [`Server`] implementation:
 //!
 //! ```no_run
-//! use rustdtp::*;
+//! use rustdtp::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -61,7 +61,7 @@
 //! A client can be built using the [`Client`] implementation:
 //!
 //! ```no_run
-//! use rustdtp::*;
+//! use rustdtp::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -115,22 +115,28 @@
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 
-mod client;
+pub mod client;
 mod command_channel;
 mod crypto;
-mod server;
+pub mod error;
+pub mod server;
 mod timeout;
 mod util;
 
-// Types exported from the crate.
-pub use client::*;
-pub use server::*;
+pub use crate::error::{Error, Result};
+
+pub mod prelude {
+    //! Re-exports of common library types and functions.
+
+    pub use crate::client::*;
+    pub use crate::server::*;
+}
 
 /// Root-level tests.
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::crypto;
+    use crate::prelude::*;
     use crate::util::*;
     use rand::Rng;
     use rand::RngCore;

@@ -1,8 +1,6 @@
 //! Crate-level utilities.
 
 use std::convert::TryFrom;
-use std::error;
-use std::io;
 
 /// The length of the size portion of each message sent through a socket.
 pub const LEN_SIZE: usize = 5;
@@ -15,33 +13,6 @@ pub const DATA_READ_TIMEOUT: u64 = 1000;
 
 /// The maximum time in milliseconds to wait for an initial handshake.
 pub const HANDSHAKE_TIMEOUT: u64 = 60000;
-
-/// Generate a generic IO error.
-///
-/// - `err`: the underlying error.
-///
-/// Returns a generic IO representation of the error.
-pub fn generic_io_error<T, E>(err: E) -> io::Result<T>
-where
-    E: Into<Box<dyn error::Error + Send + Sync>>,
-{
-    Err(io::Error::new(io::ErrorKind::Other, err))
-}
-
-/// Convert a result into a generic IO result.
-///
-/// - `value`: the result to convert.
-///
-/// Returns the result converted into a generic IO result.
-pub fn into_generic_io_result<T, E>(value: Result<T, E>) -> io::Result<T>
-where
-    E: Into<Box<dyn error::Error + Send + Sync>>,
-{
-    match value {
-        Ok(val) => Ok(val),
-        Err(e) => generic_io_error(e),
-    }
-}
 
 /// Encode the size portion of a message.
 ///
@@ -91,7 +62,7 @@ macro_rules! break_on_err {
         match $x {
             Ok(v) => v,
             Err(e) => {
-                break Err(e);
+                break Err(e.into());
             },
         }
     };
@@ -99,7 +70,7 @@ macro_rules! break_on_err {
         match $x {
             Ok(v) => v,
             Err(e) => {
-                break $label Err(e);
+                break $label Err(e.into());
             },
         }
     };

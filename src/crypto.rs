@@ -1,9 +1,11 @@
 //! Crypto utilities.
 
+use crate::error::Result;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use rsa::sha2::Sha256;
 use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
+use std::io;
 use std::sync::Arc;
 
 /// The number of bits to use for an RSA key.
@@ -14,59 +16,6 @@ pub const AES_KEY_SIZE: usize = 32;
 
 /// The number of bytes to use for an AES nonce.
 pub const AES_NONCE_SIZE: usize = 12;
-
-/// A generic crypto error.
-#[derive(Debug)]
-pub enum CryptoError<E = String>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    /// An error in an RSA operation.
-    RsaError(rsa::errors::Error),
-    /// An error in an AES operation.
-    AesError(aes_gcm::Error),
-    /// Some other error.
-    Error(E),
-}
-
-impl<E> std::fmt::Display for CryptoError<E>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync>> + ToString,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RsaError(e) => f.write_str(&e.to_string()),
-            Self::AesError(e) => f.write_str(&e.to_string()),
-            Self::Error(e) => f.write_str(&e.to_string()),
-        }
-    }
-}
-
-impl std::error::Error for CryptoError {}
-
-impl From<rsa::errors::Error> for CryptoError {
-    fn from(value: rsa::errors::Error) -> Self {
-        Self::RsaError(value)
-    }
-}
-
-impl From<aes_gcm::Error> for CryptoError {
-    fn from(value: aes_gcm::Error) -> Self {
-        Self::AesError(value)
-    }
-}
-
-impl<E> From<E> for CryptoError<E>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    fn from(value: E) -> Self {
-        Self::Error(value)
-    }
-}
-
-/// A generic crypto result.
-pub type Result<T, E = String> = core::result::Result<T, CryptoError<E>>;
 
 /// Generate a pair of RSA keys.
 ///
@@ -172,7 +121,8 @@ pub async fn aes_decrypt(
         let (nonce_slice, ciphertext) = ciphertext_with_nonce.split_at(AES_NONCE_SIZE);
         let nonce_slice_sized: [u8; AES_NONCE_SIZE] = nonce_slice
             .try_into()
-            .map_err(|_| CryptoError::Error("incorrect nonce length".to_owned()))?;
+            .map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "incorrect nonce length"))?;
+
         let nonce = Nonce::from(nonce_slice_sized);
         let plaintext = cipher.decrypt(&nonce, ciphertext.as_ref())?;
 

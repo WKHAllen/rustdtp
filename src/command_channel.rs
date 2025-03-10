@@ -1,31 +1,7 @@
 //! Command channel utilities.
 
-use std::io;
-use tokio::sync::mpsc::error::SendError;
+use crate::error::{Error, Result};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-
-/// An error associated with a command channel.
-pub enum CommandChannelError<T> {
-    /// An error occurred when sending a command.
-    SendCommandError(SendError<T>),
-    /// An error occurred when sending the return value of a command.
-    SendCommandReturnError(SendError<T>),
-    /// The command channel is closed.
-    ChannelClosed,
-}
-
-impl<T> CommandChannelError<T> {
-    /// Gets the message associated with a command channel error.
-    pub const fn message() -> &'static str {
-        "command channel closed"
-    }
-}
-
-impl<T> From<CommandChannelError<T>> for io::Error {
-    fn from(_: CommandChannelError<T>) -> Self {
-        Self::new(io::ErrorKind::Other, CommandChannelError::<T>::message())
-    }
-}
 
 /// A command channel sender.
 ///
@@ -49,15 +25,15 @@ impl<S, R> CommandChannelSender<S, R> {
     /// the error variant if an error occurred while interacting with the
     /// channel.
     #[allow(clippy::future_not_send)]
-    pub async fn send_command(&mut self, command: S) -> Result<R, CommandChannelError<S>> {
+    pub async fn send_command(&mut self, command: S) -> Result<R> {
         match self.command_sender.send(command).await {
             Ok(()) => Ok(()),
-            Err(e) => Err(CommandChannelError::SendCommandError(e)),
+            Err(_e) => Err(Error::ConnectionClosed),
         }?;
 
         match self.command_return_receiver.recv().await {
             Some(value) => Ok(value),
-            None => Err(CommandChannelError::ChannelClosed),
+            None => Err(Error::ConnectionClosed),
         }
     }
 }
@@ -81,10 +57,10 @@ impl<S, R> CommandChannelReceiver<S, R> {
     /// Returns a result containing the received command, or the error variant
     /// if an error occurred while interacting with the channel.
     #[allow(clippy::future_not_send)]
-    pub async fn recv_command(&mut self) -> Result<S, CommandChannelError<S>> {
+    pub async fn recv_command(&mut self) -> Result<S> {
         let command = match self.command_receiver.recv().await {
             Some(value) => Ok(value),
-            None => Err(CommandChannelError::ChannelClosed),
+            None => Err(Error::ConnectionClosed),
         }?;
 
         Ok(command)
@@ -98,13 +74,10 @@ impl<S, R> CommandChannelReceiver<S, R> {
     /// Returns a result of the error variant if an error occurred while
     /// interacting with the channel.
     #[allow(clippy::future_not_send, clippy::needless_pass_by_ref_mut)]
-    pub async fn command_return(
-        &mut self,
-        command_return: R,
-    ) -> Result<(), CommandChannelError<R>> {
+    pub async fn command_return(&mut self, command_return: R) -> Result<()> {
         match self.command_return_sender.send(command_return).await {
             Ok(()) => Ok(()),
-            Err(e) => Err(CommandChannelError::SendCommandReturnError(e)),
+            Err(_e) => Err(Error::ConnectionClosed),
         }
     }
 }

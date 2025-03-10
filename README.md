@@ -19,7 +19,7 @@ rustdtp = "0.8"
 A server can be built using the `Server` implementation:
 
 ```rust
-use rustdtp::*;
+use rustdtp::prelude::*;
 
 #[tokio::main]
 async fn main() {
@@ -59,7 +59,7 @@ async fn main() {
 A client can be built using the `Client` implementation:
 
 ```rust
-use rustdtp::*;
+use rustdtp::prelude::*;
 
 #[tokio::main]
 async fn main() {

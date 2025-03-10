@@ -3,13 +3,13 @@
 use super::command_channel::*;
 use super::timeout::*;
 use crate::crypto::*;
+use crate::error::{Error, Result};
 use crate::util::*;
 use rsa::pkcs8::EncodePublicKey;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::future::Future;
-use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -38,7 +38,7 @@ use tokio::task::JoinHandle;
 /// # Example
 ///
 /// ```no_run
-/// # use rustdtp::*;
+/// # use rustdtp::prelude::*;
 ///
 /// # #[tokio::main]
 /// # async fn main() {
@@ -172,7 +172,7 @@ where
 /// # Example
 ///
 /// ```no_run
-/// # use rustdtp::*;
+/// # use rustdtp::prelude::*;
 ///
 /// # #[tokio::main]
 /// # async fn main() {
@@ -344,7 +344,7 @@ impl ServerEventReportingConfig for ServerEventReporting<ServerEventReportingCha
 /// # Example
 ///
 /// ```no_run
-/// # use rustdtp::*;
+/// # use rustdtp::prelude::*;
 ///
 /// # #[tokio::main]
 /// # async fn main() {
@@ -518,7 +518,7 @@ where
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
     #[allow(clippy::future_not_send)]
-    pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
+    pub async fn start<A>(self, addr: A) -> Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
     {
@@ -587,7 +587,7 @@ where
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
     #[allow(clippy::future_not_send)]
-    pub async fn start<A>(self, addr: A) -> io::Result<ServerHandle<S>>
+    pub async fn start<A>(self, addr: A) -> Result<ServerHandle<S>>
     where
         A: ToSocketAddrs,
     {
@@ -647,7 +647,7 @@ where
     /// The set of errors that can occur are identical to that of
     /// [`Server::start`].
     #[allow(clippy::future_not_send)]
-    pub async fn start<A>(self, addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
+    pub async fn start<A>(self, addr: A) -> Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -688,17 +688,17 @@ pub enum ServerCommand {
 /// The return value of a command executed on the background server task.
 pub enum ServerCommandReturn {
     /// Stop return value.
-    Stop(io::Result<()>),
+    Stop(Result<()>),
     /// Sent data return value.
-    Send(io::Result<()>),
+    Send(Result<()>),
     /// Sent data to all return value.
-    SendAll(io::Result<()>),
+    SendAll(Result<()>),
     /// Local server address return value.
-    GetAddr(io::Result<SocketAddr>),
+    GetAddr(Result<SocketAddr>),
     /// Client address return value.
-    GetClientAddr(io::Result<SocketAddr>),
+    GetClientAddr(Result<SocketAddr>),
     /// Disconnect client return value.
-    RemoveClient(io::Result<()>),
+    RemoveClient(Result<()>),
 }
 
 /// A command sent from the server background task to a client background task.
@@ -717,17 +717,17 @@ pub enum ServerClientCommand {
 /// The return value of a command executed on a client background task.
 pub enum ServerClientCommandReturn {
     /// Send data return value.
-    Send(io::Result<()>),
+    Send(Result<()>),
     /// Client address return value.
-    GetAddr(io::Result<SocketAddr>),
+    GetAddr(Result<SocketAddr>),
     /// Disconnect client return value.
-    Remove(io::Result<()>),
+    Remove(Result<()>),
 }
 
 /// An event from the server.
 ///
 /// ```no_run
-/// use rustdtp::*;
+/// use rustdtp::prelude::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -812,7 +812,7 @@ enum ServerEventRaw {
 
 impl ServerEventRaw {
     /// Deserializes this instance into a `ServerEvent`.
-    fn deserialize<R>(&self) -> io::Result<ServerEvent<R>>
+    fn deserialize<R>(&self) -> Result<ServerEvent<R>>
     where
         R: DeserializeOwned + 'static,
     {
@@ -823,13 +823,14 @@ impl ServerEventRaw {
             Self::Disconnect { client_id } => Ok(ServerEvent::Disconnect {
                 client_id: *client_id,
             }),
-            Self::Receive { client_id, data } => match serde_json::from_slice(data) {
-                Ok(data) => Ok(ServerEvent::Receive {
-                    client_id: *client_id,
-                    data,
-                }),
-                Err(err) => generic_io_error(err),
-            },
+            Self::Receive { client_id, data } => {
+                Ok(
+                    serde_json::from_slice(data).map(|data| ServerEvent::Receive {
+                        client_id: *client_id,
+                        data,
+                    })?,
+                )
+            }
             Self::Stop => Ok(ServerEvent::Stop),
         }
     }
@@ -880,7 +881,7 @@ impl<R> TryFrom<ServerEventRaw> for ServerEventRawSafe<R>
 where
     R: DeserializeOwned + 'static,
 {
-    type Error = io::Error;
+    type Error = Error;
 
     fn try_from(value: ServerEventRaw) -> std::result::Result<Self, Self::Error> {
         value.deserialize::<R>()?;
@@ -955,19 +956,19 @@ where
     ///
     /// This will return an error if the stream is closed, or if there was an
     /// error while deserializing data received.
-    pub async fn next(&mut self) -> io::Result<ServerEvent<R>> {
+    pub async fn next(&mut self) -> Result<ServerEvent<R>> {
         match self.event_receiver.recv().await {
             Some(serialized_event) => serialized_event.deserialize(),
-            None => generic_io_error("event stream is closed"),
+            None => Err(Error::ConnectionClosed),
         }
     }
 
     /// Identical to `next`, but doesn't deserialize the event. It does,
     /// however, validate that the event can be deserialized without error.
-    async fn next_raw(&mut self) -> io::Result<ServerEventRawSafe<R>> {
+    async fn next_raw(&mut self) -> Result<ServerEventRawSafe<R>> {
         match self.event_receiver.recv().await {
             Some(serialized_event) => serialized_event.try_into(),
-            None => generic_io_error("event stream is closed"),
+            None => Err(Error::ConnectionClosed),
         }
     }
 }
@@ -980,7 +981,7 @@ where
     /// The channel through which commands can be sent to the background task.
     server_command_sender: CommandChannelSender<ServerCommand, ServerCommandReturn>,
     /// The handle to the background task.
-    server_task_handle: JoinHandle<io::Result<()>>,
+    server_task_handle: JoinHandle<Result<()>>,
     /// Phantom marker for `S`.
     marker: PhantomData<fn() -> S>,
 }
@@ -996,7 +997,7 @@ where
     /// disconnecting clients.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1034,7 +1035,7 @@ where
     /// This will return an error if the server socket has already closed, or if
     /// the underlying server loop returned an error.
     #[allow(clippy::missing_panics_doc)]
-    pub async fn stop(mut self) -> io::Result<()> {
+    pub async fn stop(mut self) -> Result<()> {
         let value = self
             .server_command_sender
             .send_command(ServerCommand::Stop)
@@ -1054,7 +1055,7 @@ where
     /// sending.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1085,8 +1086,8 @@ where
     /// This will return an error if the server socket has closed, or if data
     /// serialization fails.
     #[allow(clippy::future_not_send)]
-    pub async fn send(&mut self, client_id: usize, data: S) -> io::Result<()> {
-        let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
+    pub async fn send(&mut self, client_id: usize, data: S) -> Result<()> {
+        let data_serialized = serde_json::to_vec(&data)?;
         let value = self
             .server_command_sender
             .send_command(ServerCommand::Send {
@@ -1105,7 +1106,7 @@ where
     /// sending.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1136,8 +1137,8 @@ where
     /// This will return an error if the server socket has closed, or if data
     /// serialization fails.
     #[allow(clippy::future_not_send)]
-    pub async fn send_all(&mut self, data: S) -> io::Result<()> {
-        let data_serialized = into_generic_io_result(serde_json::to_vec(&data))?;
+    pub async fn send_all(&mut self, data: S) -> Result<()> {
+        let data_serialized = serde_json::to_vec(&data)?;
         let value = self
             .server_command_sender
             .send_command(ServerCommand::SendAll {
@@ -1153,7 +1154,7 @@ where
     /// the error variant if an error occurred.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1175,7 +1176,7 @@ where
     /// # Errors
     ///
     /// This will return an error if the server socket has closed.
-    pub async fn get_addr(&mut self) -> io::Result<SocketAddr> {
+    pub async fn get_addr(&mut self) -> Result<SocketAddr> {
         let value = self
             .server_command_sender
             .send_command(ServerCommand::GetAddr)
@@ -1191,7 +1192,7 @@ where
     /// variant if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1222,7 +1223,7 @@ where
     ///
     /// This will return an error if the server socket has closed, or if the
     /// client ID is invalid.
-    pub async fn get_client_addr(&mut self, client_id: usize) -> io::Result<SocketAddr> {
+    pub async fn get_client_addr(&mut self, client_id: usize) -> Result<SocketAddr> {
         let value = self
             .server_command_sender
             .send_command(ServerCommand::GetClientAddr { client_id })
@@ -1238,7 +1239,7 @@ where
     /// disconnecting the client, or if the client ID is invalid.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1275,7 +1276,7 @@ where
     ///
     /// This will return an error if the server socket has closed, or if the
     /// client ID is invalid.
-    pub async fn remove_client(&mut self, client_id: usize) -> io::Result<()> {
+    pub async fn remove_client(&mut self, client_id: usize) -> Result<()> {
         let value = self
             .server_command_sender
             .send_command(ServerCommand::RemoveClient { client_id })
@@ -1295,7 +1296,7 @@ where
 /// creating clients, the types should be swapped, since the server's send type will be the client's receive type and vice versa.
 ///
 /// ```no_run
-/// use rustdtp::*;
+/// use rustdtp::prelude::*;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -1363,7 +1364,7 @@ where
     /// occurred while starting the server.
     ///
     /// ```no_run
-    /// use rustdtp::*;
+    /// use rustdtp::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1386,7 +1387,7 @@ where
     /// This will return an error if a TCP listener cannot be bound to the
     /// provided address.
     #[allow(clippy::future_not_send)]
-    pub async fn start<A>(addr: A) -> io::Result<(ServerHandle<S>, ServerEventStream<R>)>
+    pub async fn start<A>(addr: A) -> Result<(ServerHandle<S>, ServerEventStream<R>)>
     where
         A: ToSocketAddrs,
     {
@@ -1431,12 +1432,13 @@ async fn server_client_loop(
         ServerClientCommand,
         ServerClientCommandReturn,
     >,
-) -> io::Result<()> {
+) -> Result<()> {
     // Generate RSA keys
-    let (rsa_pub, rsa_priv) = into_generic_io_result(rsa_keys().await)?;
+    let (rsa_pub, rsa_priv) = rsa_keys().await?;
     // Convert the RSA public key into a string...
-    let rsa_pub_str =
-        into_generic_io_result(rsa_pub.to_public_key_pem(rsa::pkcs1::LineEnding::LF))?;
+    let rsa_pub_str = rsa_pub
+        .to_public_key_pem(rsa::pkcs1::LineEnding::LF)
+        .map_err(|_| Error::InvalidRsaKeyEncoding)?;
     // ...and then into bytes
     let rsa_pub_bytes = rsa_pub_str.as_bytes();
     // Create the buffer containing the RSA public key and its size
@@ -1444,31 +1446,16 @@ async fn server_client_loop(
     // Extend the buffer with the RSA public key bytes
     rsa_pub_buffer.extend(rsa_pub_bytes);
     // Send the RSA public key to the client
-    let n = socket.write(&rsa_pub_buffer).await?;
+    socket.write_all(&rsa_pub_buffer).await?;
     // Flush the stream
     socket.flush().await?;
-
-    // If there were no bytes written, or if there were fewer
-    // bytes written than there should have been, close the
-    // socket and exit
-    if n != rsa_pub_buffer.len() {
-        socket.shutdown().await?;
-        return generic_io_error("failed to write RSA public key data to socket");
-    }
 
     // Buffer in which to receive the size portion of the AES key
     let mut aes_key_size_buffer = [0; LEN_SIZE];
     // Read the AES key from the client
-    let n_size = handshake_timeout! {
-        socket.read(&mut aes_key_size_buffer[..])
+    handshake_timeout! {
+        socket.read_exact(&mut aes_key_size_buffer[..])
     }??;
-
-    // If there were no bytes read, or if there were fewer bytes read than there
-    // should have been, close the socket and exit
-    if n_size != LEN_SIZE {
-        socket.shutdown().await?;
-        return generic_io_error("failed to read AES key size from socket");
-    };
 
     // Decode the size portion of the AES key
     let aes_key_size = decode_message_size(&aes_key_size_buffer);
@@ -1477,26 +1464,17 @@ async fn server_client_loop(
 
     // Read the AES key portion from the client socket, returning an error if
     // the socket could not be read
-    let n_aes_key = data_read_timeout! {
-        socket.read(&mut aes_key_buffer[..])
+    data_read_timeout! {
+        socket.read_exact(&mut aes_key_buffer[..])
     }??;
 
-    // If there were no bytes read, or if there were fewer bytes read than there
-    // should have been, close the socket and exit
-    if n_aes_key != aes_key_size {
-        socket.shutdown().await?;
-        return generic_io_error("failed to read AES key data from socket");
-    }
-
     // Decrypt the AES key
-    let aes_key_decrypted =
-        into_generic_io_result(rsa_decrypt(rsa_priv, aes_key_buffer.into()).await)?;
+    let aes_key_decrypted = rsa_decrypt(rsa_priv, aes_key_buffer.into()).await?;
 
     // Assert that the AES key is the correct size
-    let aes_key: [u8; AES_KEY_SIZE] = match aes_key_decrypted.try_into() {
-        Ok(val) => Ok(val),
-        Err(_e) => generic_io_error("unexpected size for AES key"),
-    }?;
+    let aes_key: [u8; AES_KEY_SIZE] = aes_key_decrypted
+        .try_into()
+        .map_err(|_| Error::InvalidAesKeySize)?;
 
     // Buffer in which to receive the size portion of a message
     let mut size_buffer = [0; LEN_SIZE];
@@ -1537,10 +1515,7 @@ async fn server_client_loop(
                 }
 
                 // Decrypt the data
-                let data_serialized = match aes_decrypt(aes_key, encrypted_data_buffer.into()).await {
-                    Ok(val) => Ok(val),
-                    Err(e) => generic_io_error(format!("failed to decrypt data: {e}")),
-                }?;
+                let data_serialized = aes_decrypt(aes_key, encrypted_data_buffer.into()).await?;
 
                 // Send an event to note that a piece of data has been received from
                 // a client
@@ -1560,7 +1535,7 @@ async fn server_client_loop(
                             ServerClientCommand::Send { data } => {
                                 let value = 'val: {
                                     // Encrypt the serialized data
-                                    let encrypted_data_buffer = break_on_err!(into_generic_io_result(aes_encrypt(aes_key, data).await), 'val);
+                                    let encrypted_data_buffer = break_on_err!(aes_encrypt(aes_key, data).await, 'val);
                                     // Encode the message size to a buffer
                                     let size_buffer = encode_message_size(encrypted_data_buffer.len());
 
@@ -1574,18 +1549,11 @@ async fn server_client_loop(
                                     buffer.extend(&encrypted_data_buffer);
 
                                     // Write the data to the client socket
-                                    let n = break_on_err!(socket.write(&buffer).await, 'val);
+                                    break_on_err!(socket.write_all(&buffer).await, 'val);
                                     // Flush the stream
                                     break_on_err!(socket.flush().await, 'val);
 
-                                    // If there were no bytes written, or if
-                                    // there were fewer bytes written than there
-                                    // should have been, close the socket
-                                    if n != buffer.len() {
-                                        generic_io_error("failed to write data to socket")
-                                    } else {
-                                        Ok(())
-                                    }
+                                    Ok(())
                                 };
 
                                 let error_occurred = value.is_err();
@@ -1608,7 +1576,7 @@ async fn server_client_loop(
                                 let addr = socket.peer_addr();
 
                                 // Return the address
-                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::GetAddr(addr)).await {
+                                if let Err(_e) = client_command_receiver.command_return(ServerClientCommandReturn::GetAddr(addr.map_err(Into::into))).await {
                                     // Channel is closed, disconnect the client
                                     socket.shutdown().await?;
                                     break;
@@ -1622,7 +1590,7 @@ async fn server_client_loop(
                                 // ignoring failures, since a failure indicates
                                 // that the client has probably already
                                 // disconnected
-                                _ = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value)).await;
+                                _ = client_command_receiver.command_return(ServerClientCommandReturn::Remove(value.map_err(Into::into))).await;
 
                                 // Break the client loop
                                 break;
@@ -1650,7 +1618,7 @@ fn server_client_handler(
     client_cleanup_sender: Sender<usize>,
 ) -> (
     CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
-    JoinHandle<io::Result<()>>,
+    JoinHandle<Result<()>>,
 ) {
     // Channels for sending commands from the background server task to a background client task
     let (client_command_sender, client_command_receiver) = command_channel();
@@ -1686,8 +1654,8 @@ async fn server_loop(
         usize,
         CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     >,
-    client_join_handles: &mut HashMap<usize, JoinHandle<io::Result<()>>>,
-) -> io::Result<()> {
+    client_join_handles: &mut HashMap<usize, JoinHandle<Result<()>>>,
+) -> Result<()> {
     // ID assigned to the next client
     let mut next_client_id = 0usize;
     // Channel for indicating that a client needs to be cleaned up after
@@ -1770,7 +1738,7 @@ async fn server_loop(
                                             },
                                         }
                                     },
-                                    None => generic_io_error("invalid client"),
+                                    None => Err(Error::InvalidClientId(client_id)),
                                 };
 
                                 // If a command fails to send, the client has probably disconnected,
@@ -1797,7 +1765,7 @@ async fn server_loop(
                                     });
 
                                     let resolved = futures::future::join_all(send_futures).await;
-                                    resolved.into_iter().collect::<io::Result<Vec<_>>>().map(|_| ())
+                                    resolved.into_iter().collect::<Result<Vec<_>>>().map(|_| ())
                                 };
 
                                 // If a command fails to send, the client has
@@ -1812,7 +1780,7 @@ async fn server_loop(
                                 // If a command fails to send, the client has
                                 // probably disconnected, and the error can be
                                 // ignored
-                                _ = server_command_receiver.command_return(ServerCommandReturn::GetAddr(addr)).await;
+                                _ = server_command_receiver.command_return(ServerCommandReturn::GetAddr(addr.map_err(Into::into))).await;
                             },
                             ServerCommand::GetClientAddr { client_id } => {
                                 let value = match client_command_senders.get_mut(&client_id) {
@@ -1824,10 +1792,10 @@ async fn server_loop(
                                             // disconnected, so the error can be
                                             // treated as an invalid client
                                             // error
-                                            generic_io_error("invalid client")
+                                            Err(Error::InvalidClientId(client_id))
                                         },
                                     },
-                                    None => generic_io_error("invalid client"),
+                                    None => Err(Error::InvalidClientId(client_id)),
                                 };
 
                                 // If a command fails to send, the client has
@@ -1847,7 +1815,7 @@ async fn server_loop(
                                             Ok(())
                                         },
                                     },
-                                    None => generic_io_error("invalid client"),
+                                    None => Err(Error::InvalidClientId(client_id)),
                                 };
 
                                 // If a command fails to send, the client has
@@ -1908,7 +1876,7 @@ async fn server_handler(
     listener: TcpListener,
     server_event_sender: Sender<ServerEventRaw>,
     server_command_receiver: CommandChannelReceiver<ServerCommand, ServerCommandReturn>,
-) -> io::Result<()> {
+) -> Result<()> {
     // Collection of channels for sending commands from the background server
     // task to a background client task
     let mut client_command_senders: HashMap<
@@ -1916,7 +1884,7 @@ async fn server_handler(
         CommandChannelSender<ServerClientCommand, ServerClientCommandReturn>,
     > = HashMap::new();
     // Background client task join handles
-    let mut client_join_handles: HashMap<usize, JoinHandle<io::Result<()>>> = HashMap::new();
+    let mut client_join_handles: HashMap<usize, JoinHandle<Result<()>>> = HashMap::new();
 
     // Wrap server loop in a block to catch all exit scenarios
     let server_exit = server_loop(
@@ -1955,7 +1923,7 @@ async fn server_handler(
     }))
     .await
     .into_iter()
-    .collect::<io::Result<Vec<_>>>()?;
+    .collect::<Result<Vec<_>>>()?;
 
     // Send a stop event, ignoring send errors
     _ = server_event_sender.send(ServerEventRaw::Stop).await;
