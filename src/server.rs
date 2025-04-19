@@ -64,7 +64,7 @@ use tokio::task::JoinHandle;
 ///                 println!("Server closed");
 ///             })
 ///     )
-///     .start(("0.0.0.0", 0))
+///     .start(("127.0.0.1", 29275))
 ///     .await
 ///     .unwrap();
 /// # }
@@ -204,7 +204,7 @@ where
 ///     .sending::<usize>()
 ///     .receiving::<String>()
 ///     .with_event_handler(MyServerHandler)
-///     .start(("0.0.0.0", 0))
+///     .start(("127.0.0.1", 29275))
 ///     .await
 ///     .unwrap();
 /// # }
@@ -352,7 +352,7 @@ impl ServerEventReportingConfig for ServerEventReporting<ServerEventReportingCha
 ///     .sending::<usize>()
 ///     .receiving::<String>()
 ///     .with_event_channel()
-///     .start(("0.0.0.0", 0))
+///     .start(("127.0.0.1", 29275))
 ///     .await
 ///     .unwrap();
 /// # }
@@ -736,7 +736,7 @@ pub enum ServerClientCommandReturn {
 ///         .sending::<()>()
 ///         .receiving::<String>()
 ///         .with_event_channel()
-///         .start(("0.0.0.0", 0))
+///         .start(("127.0.0.1", 29275))
 ///         .await
 ///         .unwrap();
 ///
@@ -1006,7 +1006,7 @@ where
     ///         .sending::<()>()
     ///         .receiving::<String>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1064,7 +1064,7 @@ where
     ///         .sending::<String>()
     ///         .receiving::<()>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1115,7 +1115,7 @@ where
     ///         .sending::<String>()
     ///         .receiving::<()>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1163,7 +1163,7 @@ where
     ///         .sending::<()>()
     ///         .receiving::<()>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1201,7 +1201,7 @@ where
     ///         .sending::<()>()
     ///         .receiving::<()>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1248,7 +1248,7 @@ where
     ///         .sending::<String>()
     ///         .receiving::<i32>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     ///
@@ -1305,7 +1305,7 @@ where
 ///         .sending::<usize>()
 ///         .receiving::<String>()
 ///         .with_event_channel()
-///         .start(("0.0.0.0", 0))
+///         .start(("127.0.0.1", 29275))
 ///         .await
 ///         .unwrap();
 ///
@@ -1372,7 +1372,7 @@ where
     ///         .sending::<()>()
     ///         .receiving::<()>()
     ///         .with_event_channel()
-    ///         .start(("0.0.0.0", 0))
+    ///         .start(("127.0.0.1", 29275))
     ///         .await
     ///         .unwrap();
     /// }

@@ -28,7 +28,7 @@ async fn main() {
         .sending::<usize>()
         .receiving::<String>()
         .with_event_channel()
-        .start(("0.0.0.0", 0))
+        .start(("127.0.0.1", 29275))
         .await
         .unwrap();
 
