@@ -1494,7 +1494,7 @@ async fn server_client_loop(
                 if n_size != LEN_SIZE {
                     socket.shutdown().await?;
                     break;
-                };
+                }
 
                 // Decode the size portion of the message
                 let encrypted_data_size = decode_message_size(&size_buffer);
